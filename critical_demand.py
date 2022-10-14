@@ -84,7 +84,7 @@ data.index = pd.date_range(start="2022-01-01", periods=len(data), freq="H")
 
 
 percent_energy_provider = 0.4  # reduces the energy input in the system
-share_demand_critical = 0.5  # share of the demand which is critical
+share_demand_critical = 0.5  # share of the demand which is critical #ADN:why??
 demand_reduction_factor = 0.15
 
 
@@ -127,7 +127,7 @@ if case != case_BPV:
 
 if case in (case_BPV, case_DBPV):
     # EPC stands for the equivalent periodical costs.
-    epc_pv = 152.62  # currency/kW/year
+    epc_pv = 190.29  # currency/kW/year
     pv = solph.Source(
         label="pv",
         outputs={
@@ -135,7 +135,7 @@ if case in (case_BPV, case_DBPV):
                 fix=solar_potential / peak_solar_potential,
                 nominal_value=None,
                 investment=solph.Investment(
-                    ep_costs=epc_pv * n_days / n_days_in_year
+                    ep_costs=epc_pv * n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
                 ),
                 variable_costs=0,
             )
@@ -149,8 +149,8 @@ if case in (case_BPV, case_DBPV):
 # the given minimum and maximum loads, which represent the fraction
 # of the optimal capacity obtained from the optimization.
 
-epc_diesel_genset = 84.80  # currency/kW/year
-variable_cost_diesel_genset = 0.045  # currency/kWh
+epc_diesel_genset = 75.83  # currency/kW/year
+variable_cost_diesel_genset = 0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
 diesel_genset_efficiency = 0.33
 if case != case_BPV:
     diesel_genset = solph.Transformer(
@@ -173,7 +173,8 @@ if case != case_BPV:
     )
 
 # The rectifier assumed to have a fixed efficiency of 98%.
-epc_rectifier = 62.35  # currency/kW/year
+# its cost already included in the PV cost investment
+epc_rectifier = 0  # currency/kW/year
 rectifier = solph.Transformer(
     label="rectifier",
     inputs={
@@ -192,7 +193,8 @@ rectifier = solph.Transformer(
 )
 
 # The inverter assumed to have a fixed efficiency of 98%.
-epc_inverter = 62.35  # currency/kW/year
+# its cost already included in the PV cost investment
+epc_inverter = 0  # currency/kW/year
 inverter = solph.Transformer(
     label="inverter",
     inputs={
@@ -213,7 +215,7 @@ inverter = solph.Transformer(
 # -------------------- STORAGE --------------------
 
 if case in (case_BPV, case_DBPV):
-    epc_battery = 101.00  # currency/kWh/year
+    epc_battery = 37.49  # currency/kWh/year #ADN: defult was 101 why too high?
     battery = solph.GenericStorage(
         label="battery",
         nominal_storage_capacity=None,
@@ -226,16 +228,15 @@ if case in (case_BPV, case_DBPV):
         },
         initial_storage_level=0.0,
         min_storage_level=0.0,
-        max_storage_level=1.0,
+        max_storage_level=0.98,
         balanced=True,
         inflow_conversion_factor=0.9,
         outflow_conversion_factor=0.9,
         invest_relation_input_capacity=1,
-        invest_relation_output_capacity=0.5,
+        invest_relation_output_capacity=0.5, #fixes the input flow investment to the output flow investment #ADN:why 0.5?
     )
 
 # -------------------- SINKS (or DEMAND) --------------------
-non_critical_demand = non_critical_demand * demand_reduction_factor
 demand_el = solph.Sink(
     label="electricity_demand",
     inputs={
@@ -245,13 +246,13 @@ demand_el = solph.Sink(
         )
     },
 )
-
+max_allowed_shortage = 0.3
 critical_demand_el = solph.Sink(
         label="electricity_critical_demand",
-        inputs={b_el_ac: solph.Flow(fix=critical_demand/critical_demand.max(), nominal_value=critical_demand.max())},
+        inputs={b_el_ac: solph.Flow(min=1-max_allowed_shortage,
+                                    max=non_critical_demand / non_critical_demand.max(),
+                                    nominal_value=critical_demand.max())},
 )
-
-
 
 excess_el = solph.Sink(
     label="excess_el",
@@ -269,14 +270,22 @@ energy_system.add(
 )
 
 # Add all objects to the energy system.
-if case in (case_BPV, case_DBPV):
+if case in (case_BPV):
     energy_system.add(
         pv,
         battery,
     )
+if case in (case_DBPV):
+    energy_system.add(
+        pv,
+        battery,
+        diesel_source,
+        diesel_genset,
+        b_diesel,
+    )
 
 # TODO set the if case
-if case != case_BPV:
+if case in (case_D):
     energy_system.add(
         diesel_source,
         diesel_genset,
@@ -321,22 +330,23 @@ results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
 results_inverter = solph.views.node(results=results, node="inverter")
 results_rectifier = solph.views.node(results=results, node="rectifier")
 if case != case_BPV:
-    results_battery = solph.views.node(results=results, node="battery")
+    results_battery = solph.views.node(results=results, node="diesel")
 else:
     results_battery = None
 
 results_demand_el = solph.views.node(
     results=results, node="electricity_demand"
 )
+results_critical_demand_el = solph.views.node(
+     results=results, node="critical_demand"
+)
 results_excess_el = solph.views.node(results=results, node="excess_el")
 
-# results_critical_demand_el = ?
-# TODO also fetch the results of the critical demand
 
 # -------------------- SEQUENCES (DYNAMIC) --------------------
 # Hourly demand profile.
 sequences_demand = results_demand_el["sequences"][
-    (("electricity_ac", "electricity_demand"), "flow")
+    (("electricity_ac", "electricity_demand"), "critical_demand", "flow")
 ]
 
 # Hourly profiles for solar potential and pv production.
@@ -346,7 +356,7 @@ sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
 # in the diesel genset.
 # The 'flow' from oemof is in kWh and must be converted to
 # kg by dividing it by the lower heating value and then to
-# liter by dividing it by the diesel density.
+# liter by dividing it by the diesel density.#ADN:??
 sequences_diesel_consumption = (
     results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
     / diesel_lhv
@@ -380,7 +390,7 @@ capacity_diesel_genset = results_diesel_genset["scalars"][
 
 # Define a tolerance to force 'too close' numbers to the `min_load`
 # and to 0 to be the same as the `min_load` and 0.
-tol = 1e-8
+tol = 1e-8 #ADN ??
 load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
 sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
 sequences_diesel_genset[np.abs(load_diesel_genset - min_load) < tol] = (
@@ -413,14 +423,14 @@ total_cost_component = (
     / n_days_in_year
 )
 
-# The only componnet with the variable cost is the diesl genset
+# The only component with the variable cost is the diesel genset
 total_cost_variable = (
     variable_cost_diesel_genset * sequences_diesel_genset.sum(axis=0)
 )
 
 total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
 total_revenue = total_cost_component + total_cost_variable + total_cost_diesel
-total_demand = sequences_demand.sum(axis=0) # TODO adapt for critical demand
+total_demand = sequences_demand.sum(axis=0) # TODO adapt for critical demand #ADN: Added not sure!
 
 # Levelized cost of electricity in the system in currency's Cent per kWh.
 lcoe = 100 * total_revenue / total_demand
