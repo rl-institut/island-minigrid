@@ -330,7 +330,7 @@ results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
 results_inverter = solph.views.node(results=results, node="inverter")
 results_rectifier = solph.views.node(results=results, node="rectifier")
 if case != case_BPV:
-    results_battery = solph.views.node(results=results, node="diesel")
+    results_diesel = solph.views.node(results=results, node="diesel")
 else:
     results_battery = None
 
