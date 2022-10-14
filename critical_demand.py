@@ -62,8 +62,7 @@ case_DBPV = "DBPV"
 case_BPV = "BPV"
 
 case = case_BPV
-
-
+print("case", case)
 
 # Create date and time objects.
 start_date_obj = datetime.strptime(start, "%Y-%m-%d")
@@ -133,9 +132,8 @@ if case in (case_BPV, case_DBPV):
         outputs={
             b_el_dc: solph.Flow(
                 fix=solar_potential / peak_solar_potential,
-                nominal_value=None,
                 investment=solph.Investment(
-                    ep_costs=epc_pv * n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
+                    ep_costs=epc_pv #* n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
                 ),
                 variable_costs=0,
             )
@@ -179,10 +177,10 @@ rectifier = solph.Transformer(
     label="rectifier",
     inputs={
         b_el_ac: solph.Flow(
-            nominal_value=None,
-            investment=solph.Investment(
-                ep_costs=epc_rectifier * n_days / n_days_in_year
-            ),
+            #nominal_value=None,
+            #investment=solph.Investment(
+            #    ep_costs=epc_rectifier * n_days / n_days_in_year
+            #),
             variable_costs=0,
         )
     },
@@ -199,10 +197,10 @@ inverter = solph.Transformer(
     label="inverter",
     inputs={
         b_el_dc: solph.Flow(
-            nominal_value=None,
-            investment=solph.Investment(
-                ep_costs=epc_inverter * n_days / n_days_in_year
-            ),
+            #nominal_value=None,
+            #investment=solph.Investment(
+            #    ep_costs=epc_inverter * n_days / n_days_in_year
+            #),
             variable_costs=0,
         )
     },
@@ -241,17 +239,19 @@ demand_el = solph.Sink(
     label="electricity_demand",
     inputs={
         b_el_ac: solph.Flow(
-            fix=non_critical_demand / non_critical_demand.max(),
-            nominal_value=non_critical_demand.max(),
+            fix=non_critical_demand, #/ non_critical_demand.max(),
+            #nominal_value=1, #non_critical_demand.max(),
         )
     },
 )
 max_allowed_shortage = 0.3
 critical_demand_el = solph.Sink(
         label="electricity_critical_demand",
-        inputs={b_el_ac: solph.Flow(min=1-max_allowed_shortage,
-                                    max=non_critical_demand / non_critical_demand.max(),
-                                    nominal_value=critical_demand.max())},
+        inputs={b_el_ac: solph.Flow(
+            #fix=critical_demand,
+            max=1, # non_critical_demand / non_critical_demand.max(),
+            nominal_value=critical_demand.max())
+        },
 )
 
 excess_el = solph.Sink(
@@ -270,12 +270,12 @@ energy_system.add(
 )
 
 # Add all objects to the energy system.
-if case in (case_BPV):
+if case == case_BPV:
     energy_system.add(
         pv,
         battery,
     )
-if case in (case_DBPV):
+if case == case_DBPV:
     energy_system.add(
         pv,
         battery,
@@ -285,7 +285,7 @@ if case in (case_DBPV):
     )
 
 # TODO set the if case
-if case in (case_D):
+if case == case_D:
     energy_system.add(
         diesel_source,
         diesel_genset,
@@ -325,8 +325,10 @@ end_simulation_time = time.time()
 results = solph.processing.results(model)
 
 results_pv = solph.views.node(results=results, node="pv")
-results_diesel_source = solph.views.node(results=results, node="diesel_source")
-results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
+if case in (case_D, case_DBPV):
+    results_diesel_source = solph.views.node(results=results, node="diesel_source")
+    results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
+
 results_inverter = solph.views.node(results=results, node="inverter")
 results_rectifier = solph.views.node(results=results, node="rectifier")
 if case != case_BPV:
@@ -344,9 +346,9 @@ results_excess_el = solph.views.node(results=results, node="excess_el")
 
 
 # -------------------- SEQUENCES (DYNAMIC) --------------------
-# Hourly demand profile.
+# Hourly demand profile. #TODO need to make sure this is right
 sequences_demand = results_demand_el["sequences"][
-    (("electricity_ac", "electricity_demand"), "critical_demand", "flow")
+    (("electricity_ac", "electricity_demand"), "flow")
 ]
 
 # Hourly profiles for solar potential and pv production.
