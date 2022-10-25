@@ -484,8 +484,11 @@ else:
 excess_rate = (
     100
     * sequences_excess.sum(axis=0)
-    / (sequences_excess.sum(axis=0) + sequences_demand.sum(axis=0))
+    / (sequences_excess.sum(axis=0) + sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0))
 )
+
+critical_demand_fulfilled = 100 *(sequences_critical_demand.sum(axis=0) / critical_demand.sum(axis=0))
+demand_fulfilled = 100 *(sequences_demand.sum(axis=0) / non_critical_demand.sum(axis=0))
 
 
 ##########################################################################
@@ -499,6 +502,8 @@ print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
 print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
 print(f"RES:\t\t {res:.0f}%")
 print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
+print(f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}% of the total critical demand")
+print(f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.1f}% of the total non critical demand")
 print(50 * "*")
 print("Optimal Capacities:")
 print("-------------------")
