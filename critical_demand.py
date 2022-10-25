@@ -43,6 +43,13 @@ try:
 except ImportError:
     plt = None
 
+import dash
+from dash import dcc
+from dash import html
+from dash import dash_table
+from dash.dependencies import Input, Output, State
+import plotly.graph_objs as go
+
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
@@ -596,11 +603,182 @@ print(50 * "*")
 #     plt.show()
 
 
+import dash
+from dash import dcc
+from dash import html
+import pandas as pd
+from dash import dash_table
+from dash.dependencies import Input, Output, State
+import plotly.graph_objs as go
 
 
+def sankey(energy_system, results, ts=None):
+    """Return a dict to a plotly sankey diagram"""
+    busses = []
 
+    labels = []
+    sources = []
+    targets = []
+    values = []
 
+    # draw a node for each of the network's component. The shape depends on the component's type
+    for nd in energy_system.nodes:
+        if isinstance(nd, solph.Bus):
 
+            # keep the bus reference for drawing edges later
+            bus = nd
+            busses.append(bus)
 
+            bus_label = bus.label
+
+            labels.append(nd.label)
+
+            flows = solph.views.node(results, bus_label)["sequences"]
+
+            # draw an arrow from the component to the bus
+            for component in bus.inputs:
+                if component.label not in labels:
+                    labels.append(component.label)
+
+                sources.append(labels.index(component.label))
+                targets.append(labels.index(bus_label))
+
+                val = flows[((component.label, bus_label), "flow")].sum()
+                if ts is not None:
+                    val = flows[((component.label, bus_label), "flow")][ts]
+                # if val == 0:
+                #     val = 1
+                values.append(val)
+
+            for component in bus.outputs:
+                # draw an arrow from the bus to the component
+                if component.label not in labels:
+                    labels.append(component.label)
+
+                sources.append(labels.index(bus_label))
+                targets.append(labels.index(component.label))
+
+                val = flows[((bus_label, component.label), "flow")].sum()
+                if ts is not None:
+                    val = flows[((bus_label, component.label), "flow")][ts]
+                # if val == 0:
+                #     val = 1
+                values.append(val)
+
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node=dict(
+                    pad=15,
+                    thickness=20,
+                    line=dict(color="black", width=0.5),
+                    label=labels,
+                    hovertemplate="Node has total value %{value}<extra></extra>",
+                    color="blue",
+                ),
+                link=dict(
+                    source=sources,  # indices correspond to labels, eg A1, A2, A2, B1, ...
+                    target=targets,
+                    value=values,
+                    hovertemplate="Link from node %{source.label}<br />"
+                    + "to node%{target.label}<br />has value %{value}"
+                    + "<br />and data <extra></extra>",
+                ),
+            )
+        ]
     )
 
+    fig.update_layout(title_text="Basic Sankey Diagram", font_size=10)
+    return fig.to_dict()
+
+
+bus_figures = []
+busses = ["electricity_ac", "electricity_dc"]
+for bus in busses:
+    fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+    for t, g in solph.views.node(results, node=bus)["sequences"].items():
+        idx_asset = abs(t[0].index(bus) - 1)
+
+        fig.add_trace(
+            go.Scatter(x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset])
+        )
+    bus_figures.append(fig)
+
+# loading external resources
+external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
+options = dict(
+    # external_stylesheets=external_stylesheets
+)
+from oemof_visio import ESGraphRenderer
+
+er = ESGraphRenderer(energy_system, filepath="energy_system.pdf")
+
+
+demo_app = dash.Dash(__name__, **options)
+
+demo_app.layout = html.Div(
+    children=[
+        html.H1(children="Hello Dash", id="title"),
+        dcc.Slider(
+            id="ts_slice",
+            value=1,
+            min=0,
+            max=n_days * 24,
+            #marks={k: v for k, v in enumerate(date_time_index)},
+        ),
+        html.Div(children="""Hello World !""", id="paragraph"),
+        dcc.Graph(id="sankey", figure=sankey(energy_system, results)),
+    ]
+    + [dcc.Graph(id=f"{bus}-id", figure=fig,) for bus, fig in zip(busses, bus_figures)]
+    + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
+)
+
+
+@demo_app.callback(
+    # The value of these components of the layout will be changed by this callback
+    [Output(component_id="sankey", component_property="figure")]
+    + [Output(component_id=f"{bus}-id", component_property="figure") for bus in busses],
+    # Triggers the callback when the value of one of these components of the layout is changed
+    Input(component_id="ts_slice", component_property="value"),
+)
+def update_table(ts):
+    bus_figures = []
+    for bus in busses:
+        fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+        max_y = 0
+        for t, g in solph.views.node(results, node=bus)["sequences"].items():
+            idx_asset = abs(t[0].index(bus) - 1)
+            asset_name = t[0][idx_asset]
+            if t[0][idx_asset] == "battery":
+                if idx_asset == 0:
+                    asset_name += " discharge"
+                else:
+                    asset_name += " charge"
+            opts = {}
+            negative_sign = pow(-1, idx_asset)
+            opts["stackgroup"] = (
+                "negative_sign" if negative_sign < 0 else "positive_sign"
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                )
+            )
+            if g.max() > max_y:
+                max_y = g.max()
+        fig.add_trace(
+            go.Scatter(
+                x=[date_time_index[ts], date_time_index[ts]],
+                y=[0, max_y],
+                name="none",
+                marker=dict(color="black"),
+            )
+        )
+        bus_figures.append(fig)
+
+    return [sankey(energy_system, results, date_time_index[ts])] + bus_figures
+
+
+if __name__ == "__main__":
+    demo_app.run_server(debug=True)
