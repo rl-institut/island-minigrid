@@ -107,11 +107,11 @@ energy_system = solph.EnergySystem(timeindex=date_time_index)
 # Create electricity and diesel buses.
 b_el_ac = solph.Bus(label="electricity_ac")
 b_el_dc = solph.Bus(label="electricity_dc")
-if case != case_BPV:
+if case in (case_D, case_DBPV):
     b_diesel = solph.Bus(label="diesel")
 
 # -------------------- SOURCES --------------------
-if case != case_BPV:
+if case in (case_D, case_DBPV):
     diesel_cost = 0.65  # currency/l
     diesel_density = 0.846  # kg/l
     diesel_lhv = 11.83  # kWh/kg
@@ -126,14 +126,14 @@ if case != case_BPV:
 
 if case in (case_BPV, case_DBPV):
     # EPC stands for the equivalent periodical costs.
-    epc_pv = 190.29  # currency/kW/year
+    epc_pv = 152.62  # currency/kW/year
     pv = solph.Source(
         label="pv",
         outputs={
             b_el_dc: solph.Flow(
                 fix=solar_potential / peak_solar_potential,
                 investment=solph.Investment(
-                    ep_costs=epc_pv #* n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
+                    ep_costs=epc_pv * n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
                 ),
                 variable_costs=0,
             )
@@ -147,10 +147,12 @@ if case in (case_BPV, case_DBPV):
 # the given minimum and maximum loads, which represent the fraction
 # of the optimal capacity obtained from the optimization.
 
-epc_diesel_genset = 75.83  # currency/kW/year
+epc_diesel_genset = 84.8  # currency/kW/year
 variable_cost_diesel_genset = 0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
 diesel_genset_efficiency = 0.33
-if case != case_BPV:
+if case in (case_D, case_DBPV):
+    min_load = 0
+    max_load = 1
     diesel_genset = solph.Transformer(
         label="diesel_genset",
         inputs={b_diesel: solph.Flow()},
@@ -172,15 +174,15 @@ if case != case_BPV:
 
 # The rectifier assumed to have a fixed efficiency of 98%.
 # its cost already included in the PV cost investment
-epc_rectifier = 0  # currency/kW/year
+epc_rectifier = 62.35  # currency/kW/year
 rectifier = solph.Transformer(
     label="rectifier",
     inputs={
         b_el_ac: solph.Flow(
             #nominal_value=None,
-            #investment=solph.Investment(
-            #    ep_costs=epc_rectifier * n_days / n_days_in_year
-            #),
+            investment=solph.Investment(
+               ep_costs=epc_rectifier * n_days / n_days_in_year
+            ),
             variable_costs=0,
         )
     },
@@ -192,15 +194,15 @@ rectifier = solph.Transformer(
 
 # The inverter assumed to have a fixed efficiency of 98%.
 # its cost already included in the PV cost investment
-epc_inverter = 0  # currency/kW/year
+epc_inverter = 62.35  # currency/kW/year
 inverter = solph.Transformer(
     label="inverter",
     inputs={
         b_el_dc: solph.Flow(
             #nominal_value=None,
-            #investment=solph.Investment(
-            #    ep_costs=epc_inverter * n_days / n_days_in_year
-            #),
+            investment=solph.Investment(
+               ep_costs=epc_inverter * n_days / n_days_in_year
+            ),
             variable_costs=0,
         )
     },
@@ -213,7 +215,7 @@ inverter = solph.Transformer(
 # -------------------- STORAGE --------------------
 
 if case in (case_BPV, case_DBPV):
-    epc_battery = 37.49  # currency/kWh/year #ADN: defult was 101 why too high?
+    epc_battery = 101.00  # currency/kWh/year #ADN: defult was 10137.49 why too high?
     battery = solph.GenericStorage(
         label="battery",
         nominal_storage_capacity=None,
@@ -226,7 +228,7 @@ if case in (case_BPV, case_DBPV):
         },
         initial_storage_level=0.0,
         min_storage_level=0.0,
-        max_storage_level=0.98,
+        max_storage_level=1,
         balanced=True,
         inflow_conversion_factor=0.9,
         outflow_conversion_factor=0.9,
@@ -239,8 +241,9 @@ demand_el = solph.Sink(
     label="electricity_demand",
     inputs={
         b_el_ac: solph.Flow(
-            fix=non_critical_demand, #/ non_critical_demand.max(),
-            #nominal_value=1, #non_critical_demand.max(),
+            min=(1-demand_reduction_factor)* (non_critical_demand/ non_critical_demand.max()),
+            max=(non_critical_demand/ non_critical_demand.max()),
+            nominal_value=non_critical_demand.max(),
         )
     },
 )
@@ -248,15 +251,17 @@ max_allowed_shortage = 0.3
 critical_demand_el = solph.Sink(
         label="electricity_critical_demand",
         inputs={b_el_ac: solph.Flow(
-            #fix=critical_demand,
-            max=1, # non_critical_demand / non_critical_demand.max(),
-            nominal_value=critical_demand.max())
+            fix=critical_demand ,#/ critical_demand.max(),
+            #min=0.4,
+            #max=1, # non_critical_demand / non_critical_demand.max(),
+            nominal_value=1#critical_demand.max()
+            )
         },
 )
 
 excess_el = solph.Sink(
     label="excess_el",
-    inputs={b_el_dc: solph.Flow()},
+    inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
 )
 
 energy_system.add(
@@ -331,44 +336,48 @@ if case in (case_D, case_DBPV):
 
 results_inverter = solph.views.node(results=results, node="inverter")
 results_rectifier = solph.views.node(results=results, node="rectifier")
-if case != case_BPV:
-    results_diesel = solph.views.node(results=results, node="diesel")
-else:
-    results_battery = None
+if case in (case_BPV, case_DBPV):
+    results_battery = solph.views.node(results=results, node="battery")
 
 results_demand_el = solph.views.node(
     results=results, node="electricity_demand"
 )
 results_critical_demand_el = solph.views.node(
-     results=results, node="critical_demand"
+     results=results, node="electricity_critical_demand"
 )
 results_excess_el = solph.views.node(results=results, node="excess_el")
 
 
 # -------------------- SEQUENCES (DYNAMIC) --------------------
-# Hourly demand profile. #TODO need to make sure this is right
+# Hourly demand profile.
 sequences_demand = results_demand_el["sequences"][
     (("electricity_ac", "electricity_demand"), "flow")
 ]
 
-# Hourly profiles for solar potential and pv production.
-sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
-
-# Hourly profiles for diesel consumption and electricity production
-# in the diesel genset.
-# The 'flow' from oemof is in kWh and must be converted to
-# kg by dividing it by the lower heating value and then to
-# liter by dividing it by the diesel density.#ADN:??
-sequences_diesel_consumption = (
-    results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
-    / diesel_lhv
-    / diesel_density
-)
-
-# Hourly profiles for electricity production in the diesel genset.
-sequences_diesel_genset = results_diesel_genset["sequences"][
-    (("diesel_genset", "electricity_ac"), "flow")
+sequences_critical_demand = results_critical_demand_el["sequences"][
+    (("electricity_ac", "electricity_critical_demand"), "flow")
 ]
+
+if case in (case_BPV, case_DBPV):
+    # Hourly profiles for solar potential and pv production.
+    sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
+
+if case in (case_D, case_DBPV):
+    # Hourly profiles for diesel consumption and electricity production
+    # in the diesel genset.
+    # The 'flow' from oemof is in kWh and must be converted to
+    # kg by dividing it by the lower heating value and then to
+    # liter by dividing it by the diesel density.#ADN:??
+    sequences_diesel_consumption = (
+        results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
+        / diesel_lhv
+        / diesel_density
+    )
+
+    # Hourly profiles for electricity production in the diesel genset.
+    sequences_diesel_genset = results_diesel_genset["sequences"][
+        (("diesel_genset", "electricity_ac"), "flow")
+    ]
 
 # Hourly profiles for inverted electricity from dc to ac.
 sequences_inverter = results_inverter["sequences"][
@@ -376,42 +385,61 @@ sequences_inverter = results_inverter["sequences"][
 ]
 
 # Hourly profiles for inverted electricity from ac to dc.
-sequences_rectifier = results_rectifier["sequences"][
-    (("rectifier", "electricity_dc"), "flow")
-]
-
+if "sequences" in results_rectifier:
+    sequences_rectifier = results_rectifier["sequences"][
+        (("rectifier", "electricity_dc"), "flow")
+    ]
+else:
+    sequences_rectifier = pd.DataFrame(columns=[(("rectifier", "electricity_dc"), "flow")], index=date_time_index)
+    sequences_rectifier[(("rectifier", "electricity_dc"), "flow")] = 0
 # Hourly profiles for excess ac and dc electricity production.
 sequences_excess = results_excess_el["sequences"][
     (("electricity_dc", "excess_el"), "flow")
 ]
 
-# -------------------- SCALARS (STATIC) --------------------
-capacity_diesel_genset = results_diesel_genset["scalars"][
-    (("diesel_genset", "electricity_ac"), "invest")
-]
+if case in (case_D, case_DBPV):
+    # -------------------- SCALARS (STATIC) --------------------
+    capacity_diesel_genset = results_diesel_genset["scalars"][
+        (("diesel_genset", "electricity_ac"), "invest")
+    ]
 
-# Define a tolerance to force 'too close' numbers to the `min_load`
-# and to 0 to be the same as the `min_load` and 0.
-tol = 1e-8 #ADN ??
-load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
-sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
-sequences_diesel_genset[np.abs(load_diesel_genset - min_load) < tol] = (
-    min_load * capacity_diesel_genset
-)
-sequences_diesel_genset[np.abs(load_diesel_genset - max_load) < tol] = (
-    max_load * capacity_diesel_genset
-)
+    # Define a tolerance to force 'too close' numbers to the `min_load`
+    # and to 0 to be the same as the `min_load` and 0.
+    tol = 1e-8 #ADN ??
+    load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
+    sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
+    sequences_diesel_genset[np.abs(load_diesel_genset - min_load) < tol] = (
+        min_load * capacity_diesel_genset
+    )
+    sequences_diesel_genset[np.abs(load_diesel_genset - max_load) < tol] = (
+        max_load * capacity_diesel_genset
+    )
+else:
+    capacity_diesel_genset = 0
 
-capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
-capacity_inverter = results_inverter["scalars"][
-    (("electricity_dc", "inverter"), "invest")
-]
-capacity_rectifier = results_rectifier["scalars"][
-    (("electricity_ac", "rectifier"), "invest")
-]
-capacity_battery = results_battery["scalars"][
-    (("electricity_dc", "battery"), "invest")
-]
+if case in (case_BPV, case_DBPV):
+    capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
+
+    capacity_battery = results_battery["scalars"][
+        (("electricity_dc", "battery"), "invest")
+    ]
+else:
+    capacity_pv = 0
+    capacity_battery = 0
+
+if "scalars" in results_inverter:
+    capacity_inverter = results_inverter["scalars"][
+        (("electricity_dc", "inverter"), "invest")
+    ]
+else:
+    capacity_inverter = 0
+
+if "scalars" in results_rectifier:
+    capacity_rectifier = results_rectifier["scalars"][
+        (("electricity_ac", "rectifier"), "invest")
+    ]
+else:
+    capacity_rectifier = 0
 
 total_cost_component = (
     (
@@ -425,24 +453,32 @@ total_cost_component = (
     / n_days_in_year
 )
 
-# The only component with the variable cost is the diesel genset
-total_cost_variable = (
-    variable_cost_diesel_genset * sequences_diesel_genset.sum(axis=0)
-)
+if case in (case_D, case_DBPV):
+    # The only component with the variable cost is the diesel genset
+    total_cost_variable = (
+        variable_cost_diesel_genset * sequences_diesel_genset.sum(axis=0)
+    )
+    total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
+else:
+    total_cost_variable = 0
+    total_cost_diesel = 0
 
-total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
+
 total_revenue = total_cost_component + total_cost_variable + total_cost_diesel
-total_demand = sequences_demand.sum(axis=0) # TODO adapt for critical demand #ADN: Added not sure!
+total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0) # shoul
 
 # Levelized cost of electricity in the system in currency's Cent per kWh.
 lcoe = 100 * total_revenue / total_demand
 
-# The share of renewable energy source used to cover the demand.
-res = (
-    100
-    * sequences_pv.sum(axis=0)
-    / (sequences_diesel_genset.sum(axis=0) + sequences_pv.sum(axis=0))
-)
+if case in (case_D, case_DBPV):
+    # The share of renewable energy source used to cover the demand.
+    res = (
+        100
+        * sequences_pv.sum(axis=0)
+        / (sequences_diesel_genset.sum(axis=0) + sequences_pv.sum(axis=0))
+    )
+else:
+    res = 100
 
 # The amount of excess electricity (which must probably be dumped).
 excess_rate = (
@@ -477,83 +513,93 @@ print(50 * "*")
 # Plot the duration curve for the diesel genset
 ##########################################################################
 
-if plt is not None:
+# if plt is not None and case in (case_D, case_DBPV):
+#
+#     # Create the duration curve for the diesel genset.
+#     fig, ax = plt.subplots(figsize=(10, 5))
+#
+#     # Sort the power generated by the diesel genset in a descending order.
+#     diesel_genset_duration_curve = np.sort(sequences_diesel_genset)[::-1]
+#
+#     diesel_genset_duration_curve_in_percentage = (
+#         diesel_genset_duration_curve / capacity_diesel_genset * 100
+#     )
+#
+#     percentage = (
+#         100
+#         * np.arange(1, len(diesel_genset_duration_curve) + 1)
+#         / len(diesel_genset_duration_curve)
+#     )
+#
+#     ax.scatter(
+#         percentage,
+#         diesel_genset_duration_curve,
+#         color="dodgerblue",
+#         marker="+",
+#     )
+#
+#     # Plot a horizontal line representing the minimum load
+#     ax.axhline(
+#         y=min_load * capacity_diesel_genset,
+#         color="crimson",
+#         linestyle="--",
+#     )
+#     min_load_annotation_text = (
+#         f"minimum load: {min_load * capacity_diesel_genset:0.2f} kW"
+#     )
+#     ax.annotate(
+#         min_load_annotation_text,
+#         xy=(100, min_load * capacity_diesel_genset),
+#         xytext=(0, 5),
+#         textcoords="offset pixels",
+#         horizontalalignment="right",
+#         verticalalignment="bottom",
+#     )
+#
+#     # Plot a horizontal line representing the maximum load
+#     ax.axhline(
+#         y=max_load * capacity_diesel_genset,
+#         color="crimson",
+#         linestyle="--",
+#     )
+#     max_load_annotation_text = (
+#         f"maximum load: {max_load * capacity_diesel_genset:0.2f} kW"
+#     )
+#     ax.annotate(
+#         max_load_annotation_text,
+#         xy=(100, max_load * capacity_diesel_genset),
+#         xytext=(0, -5),
+#         textcoords="offset pixels",
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#     )
+#
+#     ax.set_title(
+#         "Duration Curve for the Diesel Genset Electricity Production",
+#         fontweight="bold",
+#     )
+#     ax.set_ylabel("diesel genset production [kW]")
+#     ax.set_xlabel("percentage of annual operation [%]")
+#
+#     # Create the second axis on the right side of the diagram
+#     # representing the operation load of the diesel genset.
+#     second_ax = ax.secondary_yaxis(
+#         "right",
+#         functions=(
+#             lambda x: x / capacity_diesel_genset * 100,
+#             lambda x: x * capacity_diesel_genset / 100,
+#         ),
+#     )
+#     second_ax.set_ylabel("diesel genset operation load [%]")
+#
+#     plt.show()
 
-    # Create the duration curve for the diesel genset.
-    fig, ax = plt.subplots(figsize=(10, 5))
 
-    # Sort the power generated by the diesel genset in a descending order.
-    diesel_genset_duration_curve = np.sort(sequences_diesel_genset)[::-1]
 
-    diesel_genset_duration_curve_in_percentage = (
-        diesel_genset_duration_curve / capacity_diesel_genset * 100
-    )
 
-    percentage = (
-        100
-        * np.arange(1, len(diesel_genset_duration_curve) + 1)
-        / len(diesel_genset_duration_curve)
+
+
+
+
     )
 
-    ax.scatter(
-        percentage,
-        diesel_genset_duration_curve,
-        color="dodgerblue",
-        marker="+",
-    )
-
-    # Plot a horizontal line representing the minimum load
-    ax.axhline(
-        y=min_load * capacity_diesel_genset,
-        color="crimson",
-        linestyle="--",
-    )
-    min_load_annotation_text = (
-        f"minimum load: {min_load * capacity_diesel_genset:0.2f} kW"
-    )
-    ax.annotate(
-        min_load_annotation_text,
-        xy=(100, min_load * capacity_diesel_genset),
-        xytext=(0, 5),
-        textcoords="offset pixels",
-        horizontalalignment="right",
-        verticalalignment="bottom",
-    )
-
-    # Plot a horizontal line representing the maximum load
-    ax.axhline(
-        y=max_load * capacity_diesel_genset,
-        color="crimson",
-        linestyle="--",
-    )
-    max_load_annotation_text = (
-        f"maximum load: {max_load * capacity_diesel_genset:0.2f} kW"
-    )
-    ax.annotate(
-        max_load_annotation_text,
-        xy=(100, max_load * capacity_diesel_genset),
-        xytext=(0, -5),
-        textcoords="offset pixels",
-        horizontalalignment="right",
-        verticalalignment="top",
-    )
-
-    ax.set_title(
-        "Duration Curve for the Diesel Genset Electricity Production",
-        fontweight="bold",
-    )
-    ax.set_ylabel("diesel genset production [kW]")
-    ax.set_xlabel("percentage of annual operation [%]")
-
-    # Create the second axis on the right side of the diagram
-    # representing the operation load of the diesel genset.
-    second_ax = ax.secondary_yaxis(
-        "right",
-        functions=(
-            lambda x: x / capacity_diesel_genset * 100,
-            lambda x: x * capacity_diesel_genset / 100,
-        ),
-    )
-    second_ax.set_ylabel("diesel genset operation load [%]")
-
-    plt.show()
