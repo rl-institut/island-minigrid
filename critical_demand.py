@@ -43,6 +43,13 @@ try:
 except ImportError:
     plt = None
 
+import dash
+from dash import dcc
+from dash import html
+from dash import dash_table
+from dash.dependencies import Input, Output, State
+import plotly.graph_objs as go
+
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
@@ -97,9 +104,7 @@ peak_solar_potential = solar_potential.max()
 peak_demand = hourly_demand.max()
 
 # Create the energy system.
-date_time_index = pd.date_range(
-    start=start_date, periods=n_days * 24, freq="H"
-)
+date_time_index = pd.date_range(start=start_date, periods=n_days * 24, freq="H")
 energy_system = solph.EnergySystem(timeindex=date_time_index)
 
 
@@ -107,11 +112,11 @@ energy_system = solph.EnergySystem(timeindex=date_time_index)
 # Create electricity and diesel buses.
 b_el_ac = solph.Bus(label="electricity_ac")
 b_el_dc = solph.Bus(label="electricity_dc")
-if case != case_BPV:
+if case in (case_D, case_DBPV):
     b_diesel = solph.Bus(label="diesel")
 
 # -------------------- SOURCES --------------------
-if case != case_BPV:
+if case in (case_D, case_DBPV):
     diesel_cost = 0.65  # currency/l
     diesel_density = 0.846  # kg/l
     diesel_lhv = 11.83  # kWh/kg
@@ -126,14 +131,16 @@ if case != case_BPV:
 
 if case in (case_BPV, case_DBPV):
     # EPC stands for the equivalent periodical costs.
-    epc_pv = 190.29  # currency/kW/year
+    epc_pv = 152.62  # currency/kW/year
     pv = solph.Source(
         label="pv",
         outputs={
             b_el_dc: solph.Flow(
                 fix=solar_potential / peak_solar_potential,
                 investment=solph.Investment(
-                    ep_costs=epc_pv #* n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
+                    ep_costs=epc_pv
+                    * n_days
+                    / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
                 ),
                 variable_costs=0,
             )
@@ -147,10 +154,14 @@ if case in (case_BPV, case_DBPV):
 # the given minimum and maximum loads, which represent the fraction
 # of the optimal capacity obtained from the optimization.
 
-epc_diesel_genset = 75.83  # currency/kW/year
-variable_cost_diesel_genset = 0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
+epc_diesel_genset = 84.8  # currency/kW/year
+variable_cost_diesel_genset = (
+    0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
+)
 diesel_genset_efficiency = 0.33
-if case != case_BPV:
+if case in (case_D, case_DBPV):
+    min_load = 0
+    max_load = 1
     diesel_genset = solph.Transformer(
         label="diesel_genset",
         inputs={b_diesel: solph.Flow()},
@@ -172,66 +183,58 @@ if case != case_BPV:
 
 # The rectifier assumed to have a fixed efficiency of 98%.
 # its cost already included in the PV cost investment
-epc_rectifier = 0  # currency/kW/year
+epc_rectifier = 62.35  # currency/kW/year
 rectifier = solph.Transformer(
     label="rectifier",
     inputs={
         b_el_ac: solph.Flow(
-            #nominal_value=None,
-            #investment=solph.Investment(
-            #    ep_costs=epc_rectifier * n_days / n_days_in_year
-            #),
+            # nominal_value=None,
+            investment=solph.Investment(
+                ep_costs=epc_rectifier * n_days / n_days_in_year
+            ),
             variable_costs=0,
         )
     },
     outputs={b_el_dc: solph.Flow()},
-    conversion_factor={
-        b_el_dc: 0.98,
-    },
+    conversion_factor={b_el_dc: 0.98,},
 )
 
 # The inverter assumed to have a fixed efficiency of 98%.
 # its cost already included in the PV cost investment
-epc_inverter = 0  # currency/kW/year
+epc_inverter = 62.35  # currency/kW/year
 inverter = solph.Transformer(
     label="inverter",
     inputs={
         b_el_dc: solph.Flow(
-            #nominal_value=None,
-            #investment=solph.Investment(
-            #    ep_costs=epc_inverter * n_days / n_days_in_year
-            #),
+            # nominal_value=None,
+            investment=solph.Investment(
+                ep_costs=epc_inverter * n_days / n_days_in_year
+            ),
             variable_costs=0,
         )
     },
     outputs={b_el_ac: solph.Flow()},
-    conversion_factor={
-        b_el_ac: 0.98,
-    },
+    conversion_factor={b_el_ac: 0.98,},
 )
 
 # -------------------- STORAGE --------------------
 
 if case in (case_BPV, case_DBPV):
-    epc_battery = 37.49  # currency/kWh/year #ADN: defult was 101 why too high?
+    epc_battery = 101.00  # currency/kWh/year #ADN: defult was 10137.49 why too high?
     battery = solph.GenericStorage(
         label="battery",
         nominal_storage_capacity=None,
-        investment=solph.Investment(
-            ep_costs=epc_battery * n_days / n_days_in_year
-        ),
+        investment=solph.Investment(ep_costs=epc_battery * n_days / n_days_in_year),
         inputs={b_el_dc: solph.Flow(variable_costs=0)},
-        outputs={
-            b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))
-        },
+        outputs={b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))},
         initial_storage_level=0.0,
         min_storage_level=0.0,
-        max_storage_level=0.98,
+        max_storage_level=1,
         balanced=True,
         inflow_conversion_factor=0.9,
         outflow_conversion_factor=0.9,
         invest_relation_input_capacity=1,
-        invest_relation_output_capacity=0.5, #fixes the input flow investment to the output flow investment #ADN:why 0.5?
+        invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment #ADN:why 0.5?
     )
 
 # -------------------- SINKS (or DEMAND) --------------------
@@ -239,57 +242,49 @@ demand_el = solph.Sink(
     label="electricity_demand",
     inputs={
         b_el_ac: solph.Flow(
-            fix=non_critical_demand, #/ non_critical_demand.max(),
-            #nominal_value=1, #non_critical_demand.max(),
+            min=(1 - demand_reduction_factor)
+            * (non_critical_demand / non_critical_demand.max()),
+            max=(non_critical_demand / non_critical_demand.max()),
+            nominal_value=non_critical_demand.max(),
         )
     },
 )
 max_allowed_shortage = 0.3
 critical_demand_el = solph.Sink(
-        label="electricity_critical_demand",
-        inputs={b_el_ac: solph.Flow(
-            #fix=critical_demand,
-            max=1, # non_critical_demand / non_critical_demand.max(),
-            nominal_value=critical_demand.max())
-        },
+    label="electricity_critical_demand",
+    inputs={
+        b_el_ac: solph.Flow(
+            fix=critical_demand,  # / critical_demand.max(),
+            # min=0.4,
+            # max=1, # non_critical_demand / non_critical_demand.max(),
+            nominal_value=1,  # critical_demand.max()
+        )
+    },
 )
 
 excess_el = solph.Sink(
-    label="excess_el",
-    inputs={b_el_dc: solph.Flow()},
+    label="excess_el", inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
 )
 
 energy_system.add(
-    b_el_dc,
-    b_el_ac,
-    inverter,
-    rectifier,
-    demand_el,
-    critical_demand_el,
-    excess_el,
+    b_el_dc, b_el_ac, inverter, rectifier, demand_el, critical_demand_el, excess_el,
 )
 
 # Add all objects to the energy system.
 if case == case_BPV:
     energy_system.add(
-        pv,
-        battery,
+        pv, battery,
     )
+
 if case == case_DBPV:
     energy_system.add(
-        pv,
-        battery,
-        diesel_source,
-        diesel_genset,
-        b_diesel,
+        pv, battery, diesel_source, diesel_genset, b_diesel,
     )
 
 # TODO set the if case
 if case == case_D:
     energy_system.add(
-        diesel_source,
-        diesel_genset,
-        b_diesel,
+        diesel_source, diesel_genset, b_diesel,
     )
 ##########################################################################
 # Optimise the energy system
@@ -309,9 +304,7 @@ es.render()
 
 model = solph.Model(energy_system)
 model.solve(
-    solver=solver,
-    solve_kwargs={"tee": True},
-    cmdline_options=solver_option[solver],
+    solver=solver, solve_kwargs={"tee": True}, cmdline_options=solver_option[solver],
 )
 
 # End of the calculation time.
@@ -331,44 +324,46 @@ if case in (case_D, case_DBPV):
 
 results_inverter = solph.views.node(results=results, node="inverter")
 results_rectifier = solph.views.node(results=results, node="rectifier")
-if case != case_BPV:
-    results_diesel = solph.views.node(results=results, node="diesel")
-else:
-    results_battery = None
+if case in (case_BPV, case_DBPV):
+    results_battery = solph.views.node(results=results, node="battery")
 
-results_demand_el = solph.views.node(
-    results=results, node="electricity_demand"
-)
+results_demand_el = solph.views.node(results=results, node="electricity_demand")
 results_critical_demand_el = solph.views.node(
-     results=results, node="critical_demand"
+    results=results, node="electricity_critical_demand"
 )
 results_excess_el = solph.views.node(results=results, node="excess_el")
 
 
 # -------------------- SEQUENCES (DYNAMIC) --------------------
-# Hourly demand profile. #TODO need to make sure this is right
+# Hourly demand profile.
 sequences_demand = results_demand_el["sequences"][
     (("electricity_ac", "electricity_demand"), "flow")
 ]
 
-# Hourly profiles for solar potential and pv production.
-sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
-
-# Hourly profiles for diesel consumption and electricity production
-# in the diesel genset.
-# The 'flow' from oemof is in kWh and must be converted to
-# kg by dividing it by the lower heating value and then to
-# liter by dividing it by the diesel density.#ADN:??
-sequences_diesel_consumption = (
-    results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
-    / diesel_lhv
-    / diesel_density
-)
-
-# Hourly profiles for electricity production in the diesel genset.
-sequences_diesel_genset = results_diesel_genset["sequences"][
-    (("diesel_genset", "electricity_ac"), "flow")
+sequences_critical_demand = results_critical_demand_el["sequences"][
+    (("electricity_ac", "electricity_critical_demand"), "flow")
 ]
+
+if case in (case_BPV, case_DBPV):
+    # Hourly profiles for solar potential and pv production.
+    sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
+
+if case in (case_D, case_DBPV):
+    # Hourly profiles for diesel consumption and electricity production
+    # in the diesel genset.
+    # The 'flow' from oemof is in kWh and must be converted to
+    # kg by dividing it by the lower heating value and then to
+    # liter by dividing it by the diesel density.#ADN:??
+    sequences_diesel_consumption = (
+        results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
+        / diesel_lhv
+        / diesel_density
+    )
+
+    # Hourly profiles for electricity production in the diesel genset.
+    sequences_diesel_genset = results_diesel_genset["sequences"][
+        (("diesel_genset", "electricity_ac"), "flow")
+    ]
 
 # Hourly profiles for inverted electricity from dc to ac.
 sequences_inverter = results_inverter["sequences"][
@@ -376,42 +371,63 @@ sequences_inverter = results_inverter["sequences"][
 ]
 
 # Hourly profiles for inverted electricity from ac to dc.
-sequences_rectifier = results_rectifier["sequences"][
-    (("rectifier", "electricity_dc"), "flow")
-]
-
+if "sequences" in results_rectifier:
+    sequences_rectifier = results_rectifier["sequences"][
+        (("rectifier", "electricity_dc"), "flow")
+    ]
+else:
+    sequences_rectifier = pd.DataFrame(
+        columns=[(("rectifier", "electricity_dc"), "flow")], index=date_time_index
+    )
+    sequences_rectifier[(("rectifier", "electricity_dc"), "flow")] = 0
 # Hourly profiles for excess ac and dc electricity production.
 sequences_excess = results_excess_el["sequences"][
     (("electricity_dc", "excess_el"), "flow")
 ]
 
-# -------------------- SCALARS (STATIC) --------------------
-capacity_diesel_genset = results_diesel_genset["scalars"][
-    (("diesel_genset", "electricity_ac"), "invest")
-]
+if case in (case_D, case_DBPV):
+    # -------------------- SCALARS (STATIC) --------------------
+    capacity_diesel_genset = results_diesel_genset["scalars"][
+        (("diesel_genset", "electricity_ac"), "invest")
+    ]
 
-# Define a tolerance to force 'too close' numbers to the `min_load`
-# and to 0 to be the same as the `min_load` and 0.
-tol = 1e-8 #ADN ??
-load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
-sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
-sequences_diesel_genset[np.abs(load_diesel_genset - min_load) < tol] = (
-    min_load * capacity_diesel_genset
-)
-sequences_diesel_genset[np.abs(load_diesel_genset - max_load) < tol] = (
-    max_load * capacity_diesel_genset
-)
+    # Define a tolerance to force 'too close' numbers to the `min_load`
+    # and to 0 to be the same as the `min_load` and 0.
+    tol = 1e-8  # ADN ??
+    load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
+    sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
+    sequences_diesel_genset[np.abs(load_diesel_genset - min_load) < tol] = (
+        min_load * capacity_diesel_genset
+    )
+    sequences_diesel_genset[np.abs(load_diesel_genset - max_load) < tol] = (
+        max_load * capacity_diesel_genset
+    )
+else:
+    capacity_diesel_genset = 0
 
-capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
-capacity_inverter = results_inverter["scalars"][
-    (("electricity_dc", "inverter"), "invest")
-]
-capacity_rectifier = results_rectifier["scalars"][
-    (("electricity_ac", "rectifier"), "invest")
-]
-capacity_battery = results_battery["scalars"][
-    (("electricity_dc", "battery"), "invest")
-]
+if case in (case_BPV, case_DBPV):
+    capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
+
+    capacity_battery = results_battery["scalars"][
+        (("electricity_dc", "battery"), "invest")
+    ]
+else:
+    capacity_pv = 0
+    capacity_battery = 0
+
+if "scalars" in results_inverter:
+    capacity_inverter = results_inverter["scalars"][
+        (("electricity_dc", "inverter"), "invest")
+    ]
+else:
+    capacity_inverter = 0
+
+if "scalars" in results_rectifier:
+    capacity_rectifier = results_rectifier["scalars"][
+        (("electricity_ac", "rectifier"), "invest")
+    ]
+else:
+    capacity_rectifier = 0
 
 total_cost_component = (
     (
@@ -425,30 +441,52 @@ total_cost_component = (
     / n_days_in_year
 )
 
-# The only component with the variable cost is the diesel genset
-total_cost_variable = (
-    variable_cost_diesel_genset * sequences_diesel_genset.sum(axis=0)
-)
+if case in (case_D, case_DBPV):
+    # The only component with the variable cost is the diesel genset
+    total_cost_variable = variable_cost_diesel_genset * sequences_diesel_genset.sum(
+        axis=0
+    )
+    total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
+else:
+    total_cost_variable = 0
+    total_cost_diesel = 0
 
-total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
+
 total_revenue = total_cost_component + total_cost_variable + total_cost_diesel
-total_demand = sequences_demand.sum(axis=0) # TODO adapt for critical demand #ADN: Added not sure!
+total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(
+    axis=0
+)  # shoul
 
 # Levelized cost of electricity in the system in currency's Cent per kWh.
 lcoe = 100 * total_revenue / total_demand
 
-# The share of renewable energy source used to cover the demand.
-res = (
-    100
-    * sequences_pv.sum(axis=0)
-    / (sequences_diesel_genset.sum(axis=0) + sequences_pv.sum(axis=0))
-)
+if case in (case_D, case_DBPV):
+    # The share of renewable energy source used to cover the demand.
+    res = (
+        100
+        * sequences_pv.sum(axis=0)
+        / (sequences_diesel_genset.sum(axis=0) + sequences_pv.sum(axis=0))
+    )
+else:
+    res = 100
 
 # The amount of excess electricity (which must probably be dumped).
 excess_rate = (
     100
     * sequences_excess.sum(axis=0)
-    / (sequences_excess.sum(axis=0) + sequences_demand.sum(axis=0))
+    / (
+        sequences_excess.sum(axis=0)
+        + sequences_demand.sum(axis=0)
+        + sequences_critical_demand.sum(axis=0)
+    )
+)
+
+critical_demand_fulfilled = 100 * (
+    sequences_critical_demand.sum(axis=0) / critical_demand.sum(axis=0)
+)
+print(critical_demand_fulfilled)
+demand_fulfilled = 100 * (
+    sequences_demand.sum(axis=0) / non_critical_demand.sum(axis=0)
 )
 
 
@@ -463,6 +501,12 @@ print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
 print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
 print(f"RES:\t\t {res:.0f}%")
 print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
+print(
+    f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}% of the total critical demand"
+)
+print(
+    f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.1f}% of the total non critical demand"
+)
 print(50 * "*")
 print("Optimal Capacities:")
 print("-------------------")
@@ -477,83 +521,264 @@ print(50 * "*")
 # Plot the duration curve for the diesel genset
 ##########################################################################
 
-if plt is not None:
+# if plt is not None and case in (case_D, case_DBPV):
+#
+#     # Create the duration curve for the diesel genset.
+#     fig, ax = plt.subplots(figsize=(10, 5))
+#
+#     # Sort the power generated by the diesel genset in a descending order.
+#     diesel_genset_duration_curve = np.sort(sequences_diesel_genset)[::-1]
+#
+#     diesel_genset_duration_curve_in_percentage = (
+#         diesel_genset_duration_curve / capacity_diesel_genset * 100
+#     )
+#
+#     percentage = (
+#         100
+#         * np.arange(1, len(diesel_genset_duration_curve) + 1)
+#         / len(diesel_genset_duration_curve)
+#     )
+#
+#     ax.scatter(
+#         percentage,
+#         diesel_genset_duration_curve,
+#         color="dodgerblue",
+#         marker="+",
+#     )
+#
+#     # Plot a horizontal line representing the minimum load
+#     ax.axhline(
+#         y=min_load * capacity_diesel_genset,
+#         color="crimson",
+#         linestyle="--",
+#     )
+#     min_load_annotation_text = (
+#         f"minimum load: {min_load * capacity_diesel_genset:0.2f} kW"
+#     )
+#     ax.annotate(
+#         min_load_annotation_text,
+#         xy=(100, min_load * capacity_diesel_genset),
+#         xytext=(0, 5),
+#         textcoords="offset pixels",
+#         horizontalalignment="right",
+#         verticalalignment="bottom",
+#     )
+#
+#     # Plot a horizontal line representing the maximum load
+#     ax.axhline(
+#         y=max_load * capacity_diesel_genset,
+#         color="crimson",
+#         linestyle="--",
+#     )
+#     max_load_annotation_text = (
+#         f"maximum load: {max_load * capacity_diesel_genset:0.2f} kW"
+#     )
+#     ax.annotate(
+#         max_load_annotation_text,
+#         xy=(100, max_load * capacity_diesel_genset),
+#         xytext=(0, -5),
+#         textcoords="offset pixels",
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#     )
+#
+#     ax.set_title(
+#         "Duration Curve for the Diesel Genset Electricity Production",
+#         fontweight="bold",
+#     )
+#     ax.set_ylabel("diesel genset production [kW]")
+#     ax.set_xlabel("percentage of annual operation [%]")
+#
+#     # Create the second axis on the right side of the diagram
+#     # representing the operation load of the diesel genset.
+#     second_ax = ax.secondary_yaxis(
+#         "right",
+#         functions=(
+#             lambda x: x / capacity_diesel_genset * 100,
+#             lambda x: x * capacity_diesel_genset / 100,
+#         ),
+#     )
+#     second_ax.set_ylabel("diesel genset operation load [%]")
+#
+#     plt.show()
 
-    # Create the duration curve for the diesel genset.
-    fig, ax = plt.subplots(figsize=(10, 5))
 
-    # Sort the power generated by the diesel genset in a descending order.
-    diesel_genset_duration_curve = np.sort(sequences_diesel_genset)[::-1]
+import dash
+from dash import dcc
+from dash import html
+import pandas as pd
+from dash import dash_table
+from dash.dependencies import Input, Output, State
+import plotly.graph_objs as go
 
-    diesel_genset_duration_curve_in_percentage = (
-        diesel_genset_duration_curve / capacity_diesel_genset * 100
+
+def sankey(energy_system, results, ts=None):
+    """Return a dict to a plotly sankey diagram"""
+    busses = []
+
+    labels = []
+    sources = []
+    targets = []
+    values = []
+
+    # draw a node for each of the network's component. The shape depends on the component's type
+    for nd in energy_system.nodes:
+        if isinstance(nd, solph.Bus):
+
+            # keep the bus reference for drawing edges later
+            bus = nd
+            busses.append(bus)
+
+            bus_label = bus.label
+
+            labels.append(nd.label)
+
+            flows = solph.views.node(results, bus_label)["sequences"]
+
+            # draw an arrow from the component to the bus
+            for component in bus.inputs:
+                if component.label not in labels:
+                    labels.append(component.label)
+
+                sources.append(labels.index(component.label))
+                targets.append(labels.index(bus_label))
+
+                val = flows[((component.label, bus_label), "flow")].sum()
+                if ts is not None:
+                    val = flows[((component.label, bus_label), "flow")][ts]
+                # if val == 0:
+                #     val = 1
+                values.append(val)
+
+            for component in bus.outputs:
+                # draw an arrow from the bus to the component
+                if component.label not in labels:
+                    labels.append(component.label)
+
+                sources.append(labels.index(bus_label))
+                targets.append(labels.index(component.label))
+
+                val = flows[((bus_label, component.label), "flow")].sum()
+                if ts is not None:
+                    val = flows[((bus_label, component.label), "flow")][ts]
+                # if val == 0:
+                #     val = 1
+                values.append(val)
+
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node=dict(
+                    pad=15,
+                    thickness=20,
+                    line=dict(color="black", width=0.5),
+                    label=labels,
+                    hovertemplate="Node has total value %{value}<extra></extra>",
+                    color="blue",
+                ),
+                link=dict(
+                    source=sources,  # indices correspond to labels, eg A1, A2, A2, B1, ...
+                    target=targets,
+                    value=values,
+                    hovertemplate="Link from node %{source.label}<br />"
+                    + "to node%{target.label}<br />has value %{value}"
+                    + "<br />and data <extra></extra>",
+                ),
+            )
+        ]
     )
 
-    percentage = (
-        100
-        * np.arange(1, len(diesel_genset_duration_curve) + 1)
-        / len(diesel_genset_duration_curve)
-    )
+    fig.update_layout(title_text="Basic Sankey Diagram", font_size=10)
+    return fig.to_dict()
 
-    ax.scatter(
-        percentage,
-        diesel_genset_duration_curve,
-        color="dodgerblue",
-        marker="+",
-    )
 
-    # Plot a horizontal line representing the minimum load
-    ax.axhline(
-        y=min_load * capacity_diesel_genset,
-        color="crimson",
-        linestyle="--",
-    )
-    min_load_annotation_text = (
-        f"minimum load: {min_load * capacity_diesel_genset:0.2f} kW"
-    )
-    ax.annotate(
-        min_load_annotation_text,
-        xy=(100, min_load * capacity_diesel_genset),
-        xytext=(0, 5),
-        textcoords="offset pixels",
-        horizontalalignment="right",
-        verticalalignment="bottom",
-    )
+bus_figures = []
+busses = ["electricity_ac", "electricity_dc"]
+for bus in busses:
+    fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+    for t, g in solph.views.node(results, node=bus)["sequences"].items():
+        idx_asset = abs(t[0].index(bus) - 1)
 
-    # Plot a horizontal line representing the maximum load
-    ax.axhline(
-        y=max_load * capacity_diesel_genset,
-        color="crimson",
-        linestyle="--",
-    )
-    max_load_annotation_text = (
-        f"maximum load: {max_load * capacity_diesel_genset:0.2f} kW"
-    )
-    ax.annotate(
-        max_load_annotation_text,
-        xy=(100, max_load * capacity_diesel_genset),
-        xytext=(0, -5),
-        textcoords="offset pixels",
-        horizontalalignment="right",
-        verticalalignment="top",
-    )
+        fig.add_trace(
+            go.Scatter(x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset])
+        )
+    bus_figures.append(fig)
 
-    ax.set_title(
-        "Duration Curve for the Diesel Genset Electricity Production",
-        fontweight="bold",
-    )
-    ax.set_ylabel("diesel genset production [kW]")
-    ax.set_xlabel("percentage of annual operation [%]")
+# loading external resources
+external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
+options = dict(
+    # external_stylesheets=external_stylesheets
+)
+from oemof_visio import ESGraphRenderer
 
-    # Create the second axis on the right side of the diagram
-    # representing the operation load of the diesel genset.
-    second_ax = ax.secondary_yaxis(
-        "right",
-        functions=(
-            lambda x: x / capacity_diesel_genset * 100,
-            lambda x: x * capacity_diesel_genset / 100,
+er = ESGraphRenderer(energy_system, filepath="energy_system.pdf")
+
+
+demo_app = dash.Dash(__name__, **options)
+
+demo_app.layout = html.Div(
+    children=[
+        html.H1(children="Hello Dash", id="title"),
+        dcc.Slider(
+            id="ts_slice",
+            value=1,
+            min=0,
+            max=n_days * 24,
+            #marks={k: v for k, v in enumerate(date_time_index)},
         ),
-    )
-    second_ax.set_ylabel("diesel genset operation load [%]")
+        html.Div(children="""Hello World !""", id="paragraph"),
+        dcc.Graph(id="sankey", figure=sankey(energy_system, results)),
+    ]
+    + [dcc.Graph(id=f"{bus}-id", figure=fig,) for bus, fig in zip(busses, bus_figures)]
+    + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
+)
 
-    plt.show()
+
+@demo_app.callback(
+    # The value of these components of the layout will be changed by this callback
+    [Output(component_id="sankey", component_property="figure")]
+    + [Output(component_id=f"{bus}-id", component_property="figure") for bus in busses],
+    # Triggers the callback when the value of one of these components of the layout is changed
+    Input(component_id="ts_slice", component_property="value"),
+)
+def update_table(ts):
+    bus_figures = []
+    for bus in busses:
+        fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+        max_y = 0
+        for t, g in solph.views.node(results, node=bus)["sequences"].items():
+            idx_asset = abs(t[0].index(bus) - 1)
+            asset_name = t[0][idx_asset]
+            if t[0][idx_asset] == "battery":
+                if idx_asset == 0:
+                    asset_name += " discharge"
+                else:
+                    asset_name += " charge"
+            opts = {}
+            negative_sign = pow(-1, idx_asset)
+            opts["stackgroup"] = (
+                "negative_sign" if negative_sign < 0 else "positive_sign"
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                )
+            )
+            if g.max() > max_y:
+                max_y = g.max()
+        fig.add_trace(
+            go.Scatter(
+                x=[date_time_index[ts], date_time_index[ts]],
+                y=[0, max_y],
+                name="none",
+                marker=dict(color="black"),
+            )
+        )
+        bus_figures.append(fig)
+
+    return [sankey(energy_system, results, date_time_index[ts])] + bus_figures
+
+
+if __name__ == "__main__":
+    demo_app.run_server(debug=True)
