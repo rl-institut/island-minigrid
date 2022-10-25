@@ -97,9 +97,7 @@ peak_solar_potential = solar_potential.max()
 peak_demand = hourly_demand.max()
 
 # Create the energy system.
-date_time_index = pd.date_range(
-    start=start_date, periods=n_days * 24, freq="H"
-)
+date_time_index = pd.date_range(start=start_date, periods=n_days * 24, freq="H")
 energy_system = solph.EnergySystem(timeindex=date_time_index)
 
 
@@ -133,7 +131,9 @@ if case in (case_BPV, case_DBPV):
             b_el_dc: solph.Flow(
                 fix=solar_potential / peak_solar_potential,
                 investment=solph.Investment(
-                    ep_costs=epc_pv * n_days / n_days_in_year #ADN:why not just put ep_costs=epc_PV??
+                    ep_costs=epc_pv
+                    * n_days
+                    / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
                 ),
                 variable_costs=0,
             )
@@ -148,7 +148,9 @@ if case in (case_BPV, case_DBPV):
 # of the optimal capacity obtained from the optimization.
 
 epc_diesel_genset = 84.8  # currency/kW/year
-variable_cost_diesel_genset = 0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
+variable_cost_diesel_genset = (
+    0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
+)
 diesel_genset_efficiency = 0.33
 if case in (case_D, case_DBPV):
     min_load = 0
@@ -179,17 +181,15 @@ rectifier = solph.Transformer(
     label="rectifier",
     inputs={
         b_el_ac: solph.Flow(
-            #nominal_value=None,
+            # nominal_value=None,
             investment=solph.Investment(
-               ep_costs=epc_rectifier * n_days / n_days_in_year
+                ep_costs=epc_rectifier * n_days / n_days_in_year
             ),
             variable_costs=0,
         )
     },
     outputs={b_el_dc: solph.Flow()},
-    conversion_factor={
-        b_el_dc: 0.98,
-    },
+    conversion_factor={b_el_dc: 0.98,},
 )
 
 # The inverter assumed to have a fixed efficiency of 98%.
@@ -199,17 +199,15 @@ inverter = solph.Transformer(
     label="inverter",
     inputs={
         b_el_dc: solph.Flow(
-            #nominal_value=None,
+            # nominal_value=None,
             investment=solph.Investment(
-               ep_costs=epc_inverter * n_days / n_days_in_year
+                ep_costs=epc_inverter * n_days / n_days_in_year
             ),
             variable_costs=0,
         )
     },
     outputs={b_el_ac: solph.Flow()},
-    conversion_factor={
-        b_el_ac: 0.98,
-    },
+    conversion_factor={b_el_ac: 0.98,},
 )
 
 # -------------------- STORAGE --------------------
@@ -219,13 +217,9 @@ if case in (case_BPV, case_DBPV):
     battery = solph.GenericStorage(
         label="battery",
         nominal_storage_capacity=None,
-        investment=solph.Investment(
-            ep_costs=epc_battery * n_days / n_days_in_year
-        ),
+        investment=solph.Investment(ep_costs=epc_battery * n_days / n_days_in_year),
         inputs={b_el_dc: solph.Flow(variable_costs=0)},
-        outputs={
-            b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))
-        },
+        outputs={b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))},
         initial_storage_level=0.0,
         min_storage_level=0.0,
         max_storage_level=1,
@@ -233,7 +227,7 @@ if case in (case_BPV, case_DBPV):
         inflow_conversion_factor=0.9,
         outflow_conversion_factor=0.9,
         invest_relation_input_capacity=1,
-        invest_relation_output_capacity=0.5, #fixes the input flow investment to the output flow investment #ADN:why 0.5?
+        invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment #ADN:why 0.5?
     )
 
 # -------------------- SINKS (or DEMAND) --------------------
@@ -241,60 +235,49 @@ demand_el = solph.Sink(
     label="electricity_demand",
     inputs={
         b_el_ac: solph.Flow(
-            min=(1-demand_reduction_factor)* (non_critical_demand/ non_critical_demand.max()),
-            max=(non_critical_demand/ non_critical_demand.max()),
+            min=(1 - demand_reduction_factor)
+            * (non_critical_demand / non_critical_demand.max()),
+            max=(non_critical_demand / non_critical_demand.max()),
             nominal_value=non_critical_demand.max(),
         )
     },
 )
 max_allowed_shortage = 0.3
 critical_demand_el = solph.Sink(
-        label="electricity_critical_demand",
-        inputs={b_el_ac: solph.Flow(
-            fix=critical_demand ,#/ critical_demand.max(),
-            #min=0.4,
-            #max=1, # non_critical_demand / non_critical_demand.max(),
-            nominal_value=1#critical_demand.max()
-            )
-        },
+    label="electricity_critical_demand",
+    inputs={
+        b_el_ac: solph.Flow(
+            fix=critical_demand,  # / critical_demand.max(),
+            # min=0.4,
+            # max=1, # non_critical_demand / non_critical_demand.max(),
+            nominal_value=1,  # critical_demand.max()
+        )
+    },
 )
 
 excess_el = solph.Sink(
-    label="excess_el",
-    inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
+    label="excess_el", inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
 )
 
 energy_system.add(
-    b_el_dc,
-    b_el_ac,
-    inverter,
-    rectifier,
-    demand_el,
-    critical_demand_el,
-    excess_el,
+    b_el_dc, b_el_ac, inverter, rectifier, demand_el, critical_demand_el, excess_el,
 )
 
 # Add all objects to the energy system.
 if case == case_BPV:
     energy_system.add(
-        pv,
-        battery,
+        pv, battery,
     )
+
 if case == case_DBPV:
     energy_system.add(
-        pv,
-        battery,
-        diesel_source,
-        diesel_genset,
-        b_diesel,
+        pv, battery, diesel_source, diesel_genset, b_diesel,
     )
 
 # TODO set the if case
 if case == case_D:
     energy_system.add(
-        diesel_source,
-        diesel_genset,
-        b_diesel,
+        diesel_source, diesel_genset, b_diesel,
     )
 ##########################################################################
 # Optimise the energy system
@@ -314,9 +297,7 @@ es.render()
 
 model = solph.Model(energy_system)
 model.solve(
-    solver=solver,
-    solve_kwargs={"tee": True},
-    cmdline_options=solver_option[solver],
+    solver=solver, solve_kwargs={"tee": True}, cmdline_options=solver_option[solver],
 )
 
 # End of the calculation time.
@@ -339,11 +320,9 @@ results_rectifier = solph.views.node(results=results, node="rectifier")
 if case in (case_BPV, case_DBPV):
     results_battery = solph.views.node(results=results, node="battery")
 
-results_demand_el = solph.views.node(
-    results=results, node="electricity_demand"
-)
+results_demand_el = solph.views.node(results=results, node="electricity_demand")
 results_critical_demand_el = solph.views.node(
-     results=results, node="electricity_critical_demand"
+    results=results, node="electricity_critical_demand"
 )
 results_excess_el = solph.views.node(results=results, node="excess_el")
 
@@ -390,7 +369,9 @@ if "sequences" in results_rectifier:
         (("rectifier", "electricity_dc"), "flow")
     ]
 else:
-    sequences_rectifier = pd.DataFrame(columns=[(("rectifier", "electricity_dc"), "flow")], index=date_time_index)
+    sequences_rectifier = pd.DataFrame(
+        columns=[(("rectifier", "electricity_dc"), "flow")], index=date_time_index
+    )
     sequences_rectifier[(("rectifier", "electricity_dc"), "flow")] = 0
 # Hourly profiles for excess ac and dc electricity production.
 sequences_excess = results_excess_el["sequences"][
@@ -405,7 +386,7 @@ if case in (case_D, case_DBPV):
 
     # Define a tolerance to force 'too close' numbers to the `min_load`
     # and to 0 to be the same as the `min_load` and 0.
-    tol = 1e-8 #ADN ??
+    tol = 1e-8  # ADN ??
     load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
     sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
     sequences_diesel_genset[np.abs(load_diesel_genset - min_load) < tol] = (
@@ -455,8 +436,8 @@ total_cost_component = (
 
 if case in (case_D, case_DBPV):
     # The only component with the variable cost is the diesel genset
-    total_cost_variable = (
-        variable_cost_diesel_genset * sequences_diesel_genset.sum(axis=0)
+    total_cost_variable = variable_cost_diesel_genset * sequences_diesel_genset.sum(
+        axis=0
     )
     total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
 else:
@@ -465,7 +446,9 @@ else:
 
 
 total_revenue = total_cost_component + total_cost_variable + total_cost_diesel
-total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0) # shoul
+total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(
+    axis=0
+)  # shoul
 
 # Levelized cost of electricity in the system in currency's Cent per kWh.
 lcoe = 100 * total_revenue / total_demand
@@ -484,11 +467,20 @@ else:
 excess_rate = (
     100
     * sequences_excess.sum(axis=0)
-    / (sequences_excess.sum(axis=0) + sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0))
+    / (
+        sequences_excess.sum(axis=0)
+        + sequences_demand.sum(axis=0)
+        + sequences_critical_demand.sum(axis=0)
+    )
 )
 
-critical_demand_fulfilled = 100 *(sequences_critical_demand.sum(axis=0) / critical_demand.sum(axis=0))
-demand_fulfilled = 100 *(sequences_demand.sum(axis=0) / non_critical_demand.sum(axis=0))
+critical_demand_fulfilled = 100 * (
+    sequences_critical_demand.sum(axis=0) / critical_demand.sum(axis=0)
+)
+print(critical_demand_fulfilled)
+demand_fulfilled = 100 * (
+    sequences_demand.sum(axis=0) / non_critical_demand.sum(axis=0)
+)
 
 
 ##########################################################################
@@ -502,8 +494,12 @@ print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
 print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
 print(f"RES:\t\t {res:.0f}%")
 print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
-print(f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}% of the total critical demand")
-print(f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.1f}% of the total non critical demand")
+print(
+    f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}% of the total critical demand"
+)
+print(
+    f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.1f}% of the total non critical demand"
+)
 print(50 * "*")
 print("Optimal Capacities:")
 print("-------------------")
