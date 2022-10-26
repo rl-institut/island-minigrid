@@ -672,7 +672,10 @@ results, energy_system = run_simulation(start=start, n_days=n_days, case=case)
 result_div = scalar_result_presentation(results, case=case)
 
 bus_figures = []
-busses = ["electricity_ac", "electricity_dc"]
+if case == case_D:
+    busses = ["electricity_ac"]
+else:
+    busses = ["electricity_ac", "electricity_dc"]
 for bus in busses:
     fig = go.Figure(layout=dict(title=f"{bus} bus node"))
     for t, g in solph.views.node(results, node=bus)["sequences"].items():
@@ -693,15 +696,46 @@ demo_app = dash.Dash(__name__, **options)
 
 demo_app.layout = html.Div(
     children=[
-        html.H1(children="Hello Dash", id="title"),
+        html.H3("Model inputs"),
+        html.Div(
+            children=[
+                html.P(f"Case: {case}"),
+                html.P(f"Number of days: {n_days}"),
+                html.P(f"Start date: {start_date}"),
+            ],
+            style={"display": "flex", "justify-content": "space-evenly"},
+        ),
+        html.Div(children=[html.H3("Results in numbers"), result_div]),
+        html.Div(
+            children=[
+                html.H3("Non critical demand reduction overview"),
+                dcc.Graph(figure=reduced_demand_fig(results)),
+            ]
+        ),
+        html.H3("Dynamic results"),
+        html.P(
+            children=[
+                "You can adjust the slider to get the energy flow at a single timestep, "
+                "or look for a specific timestep in the dropdown menu below ",
+                html.Span(
+                    "Note if you change the slider "
+                    "it will show the value in the dropdown menu, but it you change the dropdown menu directly "
+                    "it will not update the slider)"
+                ),
+            ]
+        ),
         dcc.Slider(
-            id="ts_slice",
+            id="ts_slice_slider",
             value=1,
             min=0,
             max=n_days * 24,
-            #marks={k: v for k, v in enumerate(date_time_index)},
+            # marks={k: v for k, v in enumerate(date_time_index)},
         ),
-        html.Div(children="""Hello World !""", id="paragraph"),
+        dcc.Dropdown(
+            id="ts_slice_select",
+            options={k: v for k, v in enumerate(date_time_index)},
+            value=None,
+        ),
         dcc.Graph(id="sankey", figure=sankey(energy_system, results)),
     ]
     + [dcc.Graph(id=f"{bus}-id", figure=fig,) for bus, fig in zip(busses, bus_figures)]
