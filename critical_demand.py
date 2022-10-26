@@ -543,7 +543,48 @@ def scalar_result_presentation(results, case=case):
     )
 
 
+def reduced_demand_fig(results):
 
+    results_demand_el = solph.views.node(results=results, node="electricity_demand")
+
+    sequences_demand = results_demand_el["sequences"][
+        (("electricity_ac", "electricity_demand"), "flow")
+    ]
+
+    nc_demand = non_critical_demand[sequences_demand.index].values
+
+    fig = go.Figure(
+        data=[
+            go.Scatter(
+                x=sequences_demand.index,
+                y=sequences_demand.values,
+                name="supplied non-critical demand",
+                stackgroup="d",
+                line_color="#DC267F",
+            ),
+            go.Scatter(
+                x=sequences_demand.index,
+                y=nc_demand,
+                name="non-critical demand",
+                line_color="#648FFF",
+            ),
+            go.Scatter(
+                x=sequences_demand.index,
+                y=nc_demand - sequences_demand.values,
+                name="demand reduction",
+                stackgroup="d",
+                line_color="#FE6100",
+            ),
+            go.Scatter(
+                x=sequences_demand.index,
+                y=nc_demand * (1 - demand_reduction_factor),
+                name="max demand reduction",
+                line_color="#FE6100",
+                line_dash="dash",
+            ),
+        ]
+    )
+    return fig
 
 
 import dash
