@@ -50,32 +50,11 @@ from dash import dash_table
 from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 
+from utils import read_input_file
+
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
-
-
-start = "2022-01-01"
-
-# The maximum number of days depends on the given *.csv file.
-n_days = 10
-n_days_in_year = 365
-
-case_D = "D"
-case_DBPV = "DBPV"
-case_BPV = "BPV"
-
-case = case_D
-
-
-def epc_costs():
-    epc_pv = 152.62  # currency/kW/year
-    epc_diesel_genset = 84.8  # currency/kW/year
-    epc_rectifier = 62.35  # currency/kW/year
-    epc_inverter = 62.35  # currency/kW/year
-    epc_battery = 101.00  # currency/kWh/year #ADN: defult was 10137.49 why too high?
-
-    return (epc_pv, epc_diesel_genset, epc_rectifier, epc_inverter, epc_battery)
 
 
 def other_costs():
@@ -90,19 +69,34 @@ def other_costs():
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
 # TODO use the same column names "Demand","SolarGen", also add "CriticalDemand"
-filename = os.path.join(current_directory, "diesel_genset_data.csv")
-data = pd.read_csv(filepath_or_buffer=filename)
+filename = os.path.join(current_directory, "input_case.xlsx")
+
+if not os.path.exists(filename):
+    raise FileNotFoundError(
+        f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+    )
+df_costs, data, settings = read_input_file(filename)
+
+start_date_obj = settings.start
+
+# The maximum number of days depends on the given *.csv file.
+n_days = settings.n_days
+n_days_in_year = 365
+
+case_D = "D"
+case_DBPV = "DBPV"
+case_BPV = "BPV"
+
+case = settings.case
+demand_reduction_factor = settings.maximum_demand_reduction
+
+epc = df_costs["epc"]
 
 # Change the index of data to be able to select data based on the time range.
-data.index = pd.date_range(start="2022-01-01", periods=len(data), freq="H")
+data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
 
-
-percent_energy_provider = 0.4  # reduces the energy input in the system
-share_demand_critical = 0.5  # share of the demand which is critical #ADN:why??
-demand_reduction_factor = 0.15
 
 # Create date and time objects.
-start_date_obj = datetime.strptime(start, "%Y-%m-%d")
 start_date = start_date_obj.date()
 start_time = start_date_obj.time()
 start_datetime = datetime.combine(start_date_obj.date(), start_date_obj.time())
@@ -110,7 +104,6 @@ end_datetime = start_datetime + timedelta(days=n_days)
 
 # Create the energy system.
 date_time_index = pd.date_range(start=start_date, periods=n_days * 24, freq="H")
-
 
 # Choose the range of the solar potential and demand
 # based on the selected simulation period.
@@ -122,8 +115,7 @@ peak_solar_potential = solar_potential.max()
 peak_demand = hourly_demand.max()
 
 
-def run_simulation(start=start, n_days=n_days, case=case):
-    epc_pv, epc_diesel_genset, epc_rectifier, epc_inverter, epc_battery = epc_costs()
+def run_simulation(n_days=n_days, case=case):
     variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv = other_costs()
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
@@ -156,7 +148,7 @@ def run_simulation(start=start, n_days=n_days, case=case):
                 b_el_dc: solph.Flow(
                     fix=solar_potential / peak_solar_potential,
                     investment=solph.Investment(
-                        ep_costs=epc_pv
+                        ep_costs=epc.pv
                         * n_days
                         / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
                     ),
@@ -186,7 +178,7 @@ def run_simulation(start=start, n_days=n_days, case=case):
                     # min=min_load,
                     # max=max_load,
                     investment=solph.Investment(
-                        ep_costs=epc_diesel_genset * n_days / n_days_in_year,
+                        ep_costs=epc.diesel_genset * n_days / n_days_in_year,
                         maximum=2 * peak_demand,
                     ),
                     # nonconvex=solph.NonConvex(),
@@ -203,7 +195,7 @@ def run_simulation(start=start, n_days=n_days, case=case):
             b_el_ac: solph.Flow(
                 # nominal_value=None,
                 investment=solph.Investment(
-                    ep_costs=epc_rectifier * n_days / n_days_in_year
+                    ep_costs=epc.rectifier * n_days / n_days_in_year
                 ),
                 variable_costs=0,
             )
@@ -220,7 +212,7 @@ def run_simulation(start=start, n_days=n_days, case=case):
             b_el_dc: solph.Flow(
                 # nominal_value=None,
                 investment=solph.Investment(
-                    ep_costs=epc_inverter * n_days / n_days_in_year
+                    ep_costs=epc.inverter * n_days / n_days_in_year
                 ),
                 variable_costs=0,
             )
@@ -235,7 +227,7 @@ def run_simulation(start=start, n_days=n_days, case=case):
         battery = solph.GenericStorage(
             label="battery",
             nominal_storage_capacity=None,
-            investment=solph.Investment(ep_costs=epc_battery * n_days / n_days_in_year),
+            investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
             inputs={b_el_dc: solph.Flow(variable_costs=0.01)},
             outputs={b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))},
             initial_storage_level=0.0,
@@ -427,11 +419,11 @@ def scalar_result_presentation(results, case=case):
 
     total_cost_component = (
         (
-            epc_diesel_genset * capacity_diesel_genset
-            + epc_pv * capacity_pv
-            + epc_rectifier * capacity_rectifier
-            + epc_inverter * capacity_inverter
-            + epc_battery * capacity_battery
+            epc.diesel_genset * capacity_diesel_genset
+            + epc.pv * capacity_pv
+            + epc.rectifier * capacity_rectifier
+            + epc.inverter * capacity_inverter
+            + epc.battery * capacity_battery
         )
         * n_days
         / n_days_in_year
@@ -541,6 +533,7 @@ def scalar_result_presentation(results, case=case):
             ),
         ]
     )
+
 
 
 def reduced_demand_fig(results):
