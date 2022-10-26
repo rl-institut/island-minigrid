@@ -806,4 +806,4 @@ def change_ts_value(val):
 
 
 if __name__ == "__main__":
-    demo_app.run_server(debug=True)
+    demo_app.run_server(debug=True, port=settings.port)
