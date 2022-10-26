@@ -2,3 +2,5 @@
 .idea/*
 *.pyc
 *.pdf
+*.xlsx
+!template_case.xlsx
