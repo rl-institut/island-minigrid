@@ -587,15 +587,6 @@ def reduced_demand_fig(results):
     return fig
 
 
-import dash
-from dash import dcc
-from dash import html
-import pandas as pd
-from dash import dash_table
-from dash.dependencies import Input, Output, State
-import plotly.graph_objs as go
-
-
 def sankey(energy_system, results, ts=None):
     """Return a dict to a plotly sankey diagram"""
     busses = []
@@ -697,10 +688,6 @@ external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
 options = dict(
     # external_stylesheets=external_stylesheets
 )
-from oemof_visio import ESGraphRenderer
-
-er = ESGraphRenderer(energy_system, filepath="energy_system.pdf")
-
 
 demo_app = dash.Dash(__name__, **options)
 
