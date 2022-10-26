@@ -1,5 +1,8 @@
 oemof-solph==0.4.4
 pandas
-git+https://github.com/oemof/oemof_visio.git # this might require other dependencies on windows, you could comment it
-graphviz # this might require other dependencies on windows, you could comment it
+# git+https://github.com/oemof/oemof_visio.git # this might require other dependencies on windows, you could comment it
+# graphviz # this might require other dependencies on windows, you could comment it
 black
+xlrd
+openpyxl
+dash
