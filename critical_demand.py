@@ -319,14 +319,6 @@ def run_simulation(n_days=n_days, case=case):
 
     results = solph.processing.results(model)
 
-    return results, energy_system
-
-
-def scalar_result_presentation(results, case=case):
-
-    epc_pv, epc_diesel_genset, epc_rectifier, epc_inverter, epc_battery = epc_costs()
-    variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv = other_costs()
-
     results_pv = solph.views.node(results=results, node="pv")
     if case in (case_D, case_DBPV):
         results_diesel_source = solph.views.node(results=results, node="diesel_source")
@@ -502,8 +494,7 @@ def scalar_result_presentation(results, case=case):
     print(f"Rectifier:\t {capacity_rectifier:.0f} kW")
     print(50 * "*")
 
-    # print(f"Simulation Time:\t {end_simulation_time-start_simulation_time:.2f} s")
-    return html.Div(
+    result_div = html.Div(
         children=[
             html.Div(
                 children=[
@@ -534,6 +525,7 @@ def scalar_result_presentation(results, case=case):
         ]
     )
 
+    return results, energy_system, result_div
 
 
 def reduced_demand_fig(results):
@@ -660,9 +652,8 @@ def sankey(energy_system, results, ts=None):
     return fig.to_dict()
 
 
-results, energy_system = run_simulation(start=start, n_days=n_days, case=case)
+results, energy_system, result_div = run_simulation(n_days=n_days, case=case)
 
-result_div = scalar_result_presentation(results, case=case)
 
 bus_figures = []
 if case == case_D:
