@@ -684,6 +684,7 @@ demo_app.layout = html.Div(
         html.Div(
             children=[
                 html.P(f"Case: {case}"),
+                html.P(f"Max demand reduction share: {demand_reduction_factor}"),
                 html.P(f"Number of days: {n_days}"),
                 html.P(f"Start date: {start_date}"),
             ],
@@ -693,7 +694,7 @@ demo_app.layout = html.Div(
         html.Div(
             children=[
                 html.H3("Non critical demand reduction overview"),
-                dcc.Graph(figure=reduced_demand_fig(results)),
+                dcc.Graph(id="nc_demand_supply", figure=reduced_demand_fig(results)),
             ]
         ),
         html.H3("Dynamic results"),
@@ -729,7 +730,10 @@ demo_app.layout = html.Div(
 
 @demo_app.callback(
     # The value of these components of the layout will be changed by this callback
-    [Output(component_id="sankey", component_property="figure")]
+    [
+        Output(component_id="sankey", component_property="figure"),
+        Output(component_id="nc_demand_supply", component_property="figure"),
+    ]
     + [Output(component_id=f"{bus}-id", component_property="figure") for bus in busses],
     # Triggers the callback when the value of one of these components of the layout is changed
     Input(component_id="ts_slice_select", component_property="value"),
@@ -738,6 +742,18 @@ def update_figures(ts):
     ts = int(ts)
     # see if case changes, otherwise do not rerun this
     date_time_index = energy_system.timeindex
+
+    demand_fig = reduced_demand_fig(results)
+    max_y = non_critical_demand.max()
+    demand_fig.add_trace(
+        go.Scatter(
+            x=[date_time_index[ts], date_time_index[ts]],
+            y=[0, max_y],
+            name="none",
+            line_color="black",
+        )
+    )
+
     bus_figures = []
     for bus in busses:
         fig = go.Figure(layout=dict(title=f"{bus} bus node"))
@@ -768,12 +784,15 @@ def update_figures(ts):
                 x=[date_time_index[ts], date_time_index[ts]],
                 y=[0, max_y],
                 name="none",
-                marker=dict(color="black"),
+                line_color="black",
             )
         )
         bus_figures.append(fig)
 
-    return [sankey(energy_system, results, date_time_index[ts])] + bus_figures
+    return [
+        sankey(energy_system, results, date_time_index[ts]),
+        demand_fig,
+    ] + bus_figures
 
 
 @demo_app.callback(
