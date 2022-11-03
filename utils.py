@@ -1,4 +1,5 @@
 import pandas as pd
+import base64
 from oemof.tools.economics import annuity
 from openpyxl import load_workbook
 
@@ -70,3 +71,89 @@ def read_input_file(filename):
         )
 
     return df_costs, df_timeseries, df_settings
+
+
+def encode_image_file(img_path):
+    """Encode image files to load them in the dash layout under img html tag
+
+    Parameters
+    ----------
+    img_path: str
+        path to the image file
+
+    Returns
+    -------
+    encoded_img: bytes
+        encoded bytes of the image file
+
+    """
+
+    try:
+        with open(img_path, "rb") as ifs:
+            encoded_img = base64.b64encode(ifs.read())
+    except FileNotFoundError:
+        encoded_img = base64.b64encode(bytes())
+    return encoded_img
+
+
+def capex_from_investment(
+    investment_t0, project_lifetime, asset_lifetime=None, wacc=0.05, tax=0
+):
+    """
+
+    Parameters
+    ----------
+    investment_t0: float
+       Specific investment in year 0
+
+    project_lifetime: int
+        Project lifetime in years
+
+    asset_lifetime: int
+        Asset lifetime in years
+
+    wacc: float
+        Discount factor
+
+    tax: float
+        Tax factor
+
+    Returns
+    -------
+    Capex of the asset
+
+    """
+
+    if asset_lifetime is None:
+        asset_lifetime = project_lifetime
+
+    # [quantity, investment, installation, weight, lifetime, om, first_investment]
+    if project_lifetime == asset_lifetime:
+        number_of_investments = 1
+    else:
+        number_of_investments = int(round(project_lifetime / asset_lifetime + 0.5))
+    # costs with quantity and import tax at t=0
+    first_time_investment = investment_t0 * (1 + tax)
+
+    for count_of_replacements in range(0, number_of_investments):
+        # Very first investment is in year 0
+        if count_of_replacements == 0:
+            capex = first_time_investment
+        else:
+            # replacements taking place in year = number_of_replacement * asset_lifetime
+            if count_of_replacements * asset_lifetime != project_lifetime:
+                capex = capex + first_time_investment / (
+                    (1 + wacc) ** (count_of_replacements * asset_lifetime)
+                )
+
+    # Substraction of component value at end of life with last replacement (= number_of_investments - 1)
+    if number_of_investments * asset_lifetime > project_lifetime:
+        last_investment = first_time_investment / (
+            (1 + wacc) ** ((number_of_investments - 1) * asset_lifetime)
+        )
+        linear_depreciation_last_investment = last_investment / asset_lifetime
+        capex = capex - linear_depreciation_last_investment * (
+            number_of_investments * asset_lifetime - project_lifetime
+        ) / ((1 + wacc) ** (project_lifetime))
+
+    return capex

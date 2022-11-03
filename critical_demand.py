@@ -43,6 +43,14 @@ try:
 except ImportError:
     plt = None
 
+try:
+    from oemof_visio import ESGraphRenderer
+
+    ES_GRAPH = True
+except ModuleNotFoundError:
+    ES_GRAPH = False
+
+
 import dash
 from dash import dcc
 from dash import html
@@ -50,7 +58,7 @@ from dash import dash_table
 from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 
-from utils import read_input_file
+from utils import read_input_file, capex_from_investment, encode_image_file
 
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
@@ -65,11 +73,10 @@ def other_costs():
     return variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv
 
 
-# Import data.
-current_directory = os.path.dirname(os.path.abspath(__file__))
+# ENERGY_SYSTEM_GRAPH = encode_image_file(results_json[PATHS_TO_PLOTS][PLOTS_ES])
 
 # TODO use the same column names "Demand","SolarGen", also add "CriticalDemand"
-filename = os.path.join(current_directory, "input_case.xlsx")
+filename = args.get("input_file")
 
 if not os.path.exists(filename):
     raise FileNotFoundError(
@@ -299,10 +306,13 @@ def run_simulation(n_days=n_days, case=case):
     solver = "cbc"
 
     # TODO command to show the graph, might not work on windows, one could comment those lines
-    from oemof_visio import ESGraphRenderer
 
-    es = ESGraphRenderer(energy_system, legend=True, filepath=f"case_{case}.pdf")
-    es.render()
+    energy_system_graph = f"case_{case}.png"
+    if ES_GRAPH is True:
+        es = ESGraphRenderer(
+            energy_system, legend=True, filepath=energy_system_graph, img_format="png"
+        )
+        es.render()
 
     model = solph.Model(energy_system)
     model.solve(
@@ -653,7 +663,7 @@ def sankey(energy_system, results, ts=None):
 
 
 results, energy_system, result_div = run_simulation(n_days=n_days, case=case)
-
+energy_system_graph = encode_image_file(f"case_{case}.png")
 
 bus_figures = []
 if case == case_D:
@@ -725,6 +735,15 @@ demo_app.layout = html.Div(
     ]
     + [dcc.Graph(id=f"{bus}-id", figure=fig,) for bus, fig in zip(busses, bus_figures)]
     + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
+    + [
+        html.H4(["Energy system"]),
+        html.Img(
+            src="data:image/png;base64,{}".format(energy_system_graph.decode()),
+            alt="Energy System Graph, if you do not see this image it is because pygraphviz is not installed. "
+                "If you are a windows user it might be complicated to install pygraphviz.",
+            style={"maxWidth": "100%"},
+        ),
+    ]
 )
 
 
