@@ -35,6 +35,7 @@ import numpy as np
 import os
 import pandas as pd
 import time
+import argparse
 from datetime import datetime, timedelta
 from oemof import solph
 
@@ -60,6 +61,25 @@ import plotly.graph_objs as go
 
 from utils import read_input_file, capex_from_investment, encode_image_file
 
+
+# Import data.
+current_directory = os.path.dirname(os.path.abspath(__file__))
+
+parser = argparse.ArgumentParser(
+    prog="python critical_demand.py",
+    description="Build a simple model with non critical demand",
+)
+parser.add_argument(
+    "-i",
+    dest="input_file",
+    nargs="?",
+    type=str,
+    help="path to the input file",
+    default=os.path.join(current_directory, "input_case.xlsx"),
+)
+
+args = vars(parser.parse_args())
+
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
@@ -73,9 +93,6 @@ def other_costs():
     return variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv
 
 
-# ENERGY_SYSTEM_GRAPH = encode_image_file(results_json[PATHS_TO_PLOTS][PLOTS_ES])
-
-# TODO use the same column names "Demand","SolarGen", also add "CriticalDemand"
 filename = args.get("input_file")
 
 if not os.path.exists(filename):
