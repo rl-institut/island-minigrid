@@ -38,6 +38,7 @@ import time
 import argparse
 from datetime import datetime, timedelta
 from oemof import solph
+from oemof.tools.economics import annuity
 
 try:
     import matplotlib.pyplot as plt
@@ -114,7 +115,8 @@ case_BPV = "BPV"
 case = settings.case
 demand_reduction_factor = settings.maximum_demand_reduction
 
-epc = df_costs["epc"]
+epc = df_costs["annuity"]
+lifetime = df_costs["lifetime"]
 
 # Change the index of data to be able to select data based on the time range.
 data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
@@ -346,6 +348,16 @@ def run_simulation(n_days=n_days, case=case):
 
     results = solph.processing.results(model)
 
+    df_results = df_costs.copy()
+    df_results["capacity"] = 0
+    df_results["total_flow"] = 0
+    df_results["cash_flow"] = 0
+    df_results["cash_flow"] = 0
+
+    project_lifetime = 20
+    wacc = 0.06
+    CRF = annuity(1, project_lifetime, wacc)
+
     results_pv = solph.views.node(results=results, node="pv")
     if case in (case_D, case_DBPV):
         results_diesel_source = solph.views.node(results=results, node="diesel_source")
@@ -375,6 +387,10 @@ def run_simulation(n_days=n_days, case=case):
     if case in (case_BPV, case_DBPV):
         # Hourly profiles for solar potential and pv production.
         sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
+        df_results.loc["pv", "total_flow"] = sequences_pv.sum()
+
+        # TODO find what we would like to have here
+        df_results.loc["battery", "total_flow"] = 0
 
     if case in (case_D, case_DBPV):
         # Hourly profiles for diesel consumption and electricity production
@@ -388,6 +404,10 @@ def run_simulation(n_days=n_days, case=case):
             / diesel_density
         )
 
+        df_results.loc["diesel_genset", "cash_flow"] = (
+            diesel_cost * sequences_diesel_consumption.sum()
+        )
+
         # Hourly profiles for electricity production in the diesel genset.
         sequences_diesel_genset = results_diesel_genset["sequences"][
             (("diesel_genset", "electricity_ac"), "flow")
@@ -397,6 +417,17 @@ def run_simulation(n_days=n_days, case=case):
     sequences_excess = results_excess_el["sequences"][
         (("electricity_dc", "excess_el"), "flow")
     ]
+
+    sequences_inverter = results_inverter["sequences"][
+        (("inverter", "electricity_ac"), "flow")
+    ]
+
+    sequences_rectifier = results_rectifier["sequences"][
+        (("rectifier", "electricity_dc"), "flow")
+    ]
+
+    df_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
+    df_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
 
     if case in (case_D, case_DBPV):
         # -------------------- SCALARS (STATIC) --------------------
@@ -409,6 +440,7 @@ def run_simulation(n_days=n_days, case=case):
         tol = 1e-8  # ADN ??
         load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
         sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
+        df_results.loc["diesel_genset", "total_flow"] = sequences_diesel_genset.sum()
     else:
         capacity_diesel_genset = 0
 
@@ -436,33 +468,47 @@ def run_simulation(n_days=n_days, case=case):
     else:
         capacity_rectifier = 0
 
-    total_cost_component = (
-        (
-            epc.diesel_genset * capacity_diesel_genset
-            + epc.pv * capacity_pv
-            + epc.rectifier * capacity_rectifier
-            + epc.inverter * capacity_inverter
-            + epc.battery * capacity_battery
-        )
-        * n_days
-        / n_days_in_year
+    df_results.loc["diesel_genset", "capacity"] = capacity_diesel_genset
+    df_results.loc["pv", "capacity"] = capacity_pv
+    df_results.loc["battery", "capacity"] = capacity_battery
+    df_results.loc["inverter", "capacity"] = capacity_inverter
+    df_results.loc["rectifier", "capacity"] = capacity_rectifier
+
+    # Scaling annuity to timeframe
+    year_fraction = n_days / n_days_in_year
+
+    # Compute annual costs for each components
+    df_results["annual_costs"] = df_results.apply(
+        lambda x: (x.annuity * x.capacity) * year_fraction
+        + x.total_flow * x.opex_variable,
+        axis=1,
     )
 
-    if case in (case_D, case_DBPV):
-        # The only component with the variable cost is the diesel genset
-        total_cost_variable = variable_cost_diesel_genset * sequences_diesel_genset.sum(
-            axis=0
-        )
-        total_cost_diesel = diesel_cost * sequences_diesel_consumption.sum(axis=0)
-    else:
-        total_cost_variable = 0
-        total_cost_diesel = 0
+    df_results["total_opex_costs"] = df_results.apply(
+        lambda x: (x.opex_fix * x.capacity) * year_fraction
+        + x.total_flow * x.opex_variable,
+        axis=1,
+    )
 
-    total_revenue = total_cost_component + total_cost_variable + total_cost_diesel
+    # Save the results
+    df_results[
+        [
+            "annuity",
+            "annual_costs",
+            "total_flow",
+            "capacity",
+            "cash_flow",
+            "total_opex_costs",
+        ]
+    ].to_csv(f"results_{case}.csv")
+
+    NPV = (df_results.annual_costs.sum() + df_results.cash_flow.sum()) / CRF
+
+    # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
 
     # Levelized cost of electricity in the system in currency's Cent per kWh.
-    lcoe = 100 * total_revenue / total_demand
+    lcoe = 100 * (NPV * CRF) / total_demand
 
     if case == case_DBPV:
         # The share of renewable energy source used to cover the demand.
@@ -496,6 +542,10 @@ def run_simulation(n_days=n_days, case=case):
         / non_critical_demand[sequences_demand.index].sum(axis=0)
     )
 
+    original_demand = critical_demand[sequences_critical_demand.index].sum(
+        axis=0
+    ) + non_critical_demand[sequences_demand.index].sum(axis=0)
+
     ##########################################################################
     # Print the results in the terminal
     ##########################################################################
@@ -503,8 +553,13 @@ def run_simulation(n_days=n_days, case=case):
     print(50 * "*")
     print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
+    print(
+        f"Total opex costs :\t\t {df_results.total_opex_costs.sum() * project_lifetime:.2f}"
+    )
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
+    print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
+    print(f"Original demand:\t\t {original_demand:.1f} kWh")
     print(
         f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}% of the total critical demand"
     )
@@ -757,7 +812,7 @@ demo_app.layout = html.Div(
         html.Img(
             src="data:image/png;base64,{}".format(energy_system_graph.decode()),
             alt="Energy System Graph, if you do not see this image it is because pygraphviz is not installed. "
-                "If you are a windows user it might be complicated to install pygraphviz.",
+            "If you are a windows user it might be complicated to install pygraphviz.",
             style={"maxWidth": "100%"},
         ),
     ]
