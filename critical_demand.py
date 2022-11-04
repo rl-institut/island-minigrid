@@ -62,7 +62,14 @@ import plotly.graph_objs as go
 
 from utils import read_input_file, capex_from_investment, encode_image_file
 
-
+RESULTS_COLUMN_NAMES = [
+    "annuity",
+    "annual_costs",
+    "total_flow",
+    "capacity",
+    "cash_flow",
+    "total_opex_costs",
+]
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
@@ -464,16 +471,7 @@ def run_simulation(df_costs, data, settings):
     )
 
     # Save the results
-    df_results = df_results[
-        [
-            "annuity",
-            "annual_costs",
-            "total_flow",
-            "capacity",
-            "cash_flow",
-            "total_opex_costs",
-        ]
-    ]
+    df_results = df_results[RESULTS_COLUMN_NAMES]
     df_results.to_csv(f"results_{case}.csv")
 
     NPV = (df_results.annual_costs.sum() + df_results.cash_flow.sum()) / CRF
@@ -520,16 +518,30 @@ def run_simulation(df_costs, data, settings):
         axis=0
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
+    total_opex_costs = df_results.total_opex_costs.sum() * project_lifetime
+
     ##########################################################################
     # Print the results in the terminal
     ##########################################################################
+    scalars = dict(
+        lcoe=lcoe,
+        npv=NPV,
+        critical_demand_fulfilled=critical_demand_fulfilled,
+        demand_fulfilled=demand_fulfilled,
+        excess_rate=excess_rate,
+        supplied_demand=total_demand,
+        original_demand=total_demand,
+        total_opex_costs=total_opex_costs,
+        res=res,
+    )
+    df_scalars = pd.DataFrame.from_records(
+        [i for i in scalars.items()], columns=["param", "value"]
+    ).set_index("param")
 
     print(50 * "*")
     print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
-    print(
-        f"Total opex costs :\t\t {df_results.total_opex_costs.sum() * project_lifetime:.2f}"
-    )
+    print(f"Total opex costs :\t\t {total_opex_costs:.2f}")
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
     print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
@@ -586,6 +598,7 @@ def run_simulation(df_costs, data, settings):
         df_results,
         energy_system,
         result_div,
+        df_scalars,
         date_time_index,
         non_critical_demand,
         critical_demand,
@@ -746,6 +759,7 @@ if __name__ == "__main__":
         df_results,
         energy_system,
         result_div,
+        df_scalars,
         date_time_index,
         non_critical_demand,
         critical_demand,
