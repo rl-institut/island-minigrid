@@ -780,12 +780,17 @@ demo_app.layout = html.Div(
         html.H3("Model inputs"),
         html.Div(
             children=[
-                html.P(f"Case: {case}"),
-                html.P(f"Max demand reduction share: {demand_reduction_factor}"),
-                html.P(f"Number of days: {n_days}"),
-                html.P(f"Start date: {start_date}"),
+                html.P(f"{param.title()}: {settings[param]}")
+                for param in settings.index
+                if param != "port"
             ],
             style={"display": "flex", "justify-content": "space-evenly"},
+        ),
+        html.Div(
+            children=dash_table.DataTable(
+                df_costs.reset_index().to_dict("records"),
+                [{"name": i, "id": i} for i in df_costs.reset_index().columns],
+            )
         ),
         html.Div(children=[html.H3("Results in numbers"), result_div]),
         html.Div(
@@ -793,6 +798,12 @@ demo_app.layout = html.Div(
                 html.H3("Non critical demand reduction overview"),
                 dcc.Graph(id="nc_demand_supply", figure=reduced_demand_fig(results)),
             ]
+        ),
+        html.Div(
+            children=dash_table.DataTable(
+                df_results.reset_index().to_dict("records"),
+                [{"name": i, "id": i} for i in df_results.reset_index().columns],
+            )
         ),
         html.H3("Dynamic results"),
         html.P(
