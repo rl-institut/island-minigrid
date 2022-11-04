@@ -80,3 +80,65 @@ def sentitivity_analysis(filename):
     system_sa_results.to_csv("system_sa_results.csv")
     assets_sa_results.to_csv("assets_sa_results.csv")
     return system_sa_results, assets_sa_results
+
+
+if __name__ == "__main__":
+    # Import data.
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+
+    parser = argparse.ArgumentParser(
+        prog="python sensitivity.py",
+        description="Build a simple model with non critical demand",
+    )
+    parser.add_argument(
+        "-i",
+        dest="input_file",
+        nargs="?",
+        type=str,
+        help="path to the input file",
+        default=os.path.join(current_directory, "input_case.xlsx"),
+    )
+
+    args = vars(parser.parse_args())
+
+    filename = args.get("input_file")
+
+    if not os.path.exists(filename):
+        raise FileNotFoundError(
+            f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+        )
+
+    if not os.path.exists("system_sa_results.csv"):
+        system_sa_results, assets_sa_results = sensitivity_analysis()
+    else:
+        system_sa_results = pd.read_csv("system_sa_results.csv")
+        assets_sa_results = pd.read_csv("assets_sa_results.csv")
+
+    # loading external resources
+    external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
+    options = dict(
+        # external_stylesheets=external_stylesheets
+    )
+
+    demo_app = dash.Dash(__name__, **options)
+
+    demo_app.layout = html.Div(
+        children=[
+            html.H3("Sensitivity analysis outputs"),
+            html.Div(
+                children=dash_table.DataTable(
+                    system_sa_results.to_dict("records"),
+                    [{"name": i, "id": i} for i in system_sa_results.columns],
+                )
+            ),
+            html.Div(
+                children=dash_table.DataTable(
+                    assets_sa_results.to_dict("records"),
+                    [{"name": i, "id": i} for i in assets_sa_results.columns],
+                )
+            ),
+        ]
+        # + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
+    )
+
+    demo_app.run_server(debug=True, port=8050)
