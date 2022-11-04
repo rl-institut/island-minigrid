@@ -63,11 +63,16 @@ def read_input_file(filename):
     df_settings = df["value"]
 
     # compute the epc needed for oemof investments if not provided
-    if "epc" not in df_costs.columns:
+    if "annuity" not in df_costs.columns:
         wacc = df_settings.wacc
         project_lifetime = df_costs.lifetime.project
-        df_costs["epc"] = df_costs.capex_variable.apply(
-            lambda x: annuity(x, project_lifetime, wacc)
+        # correspond to equation (6)
+        df_costs["annuity"] = df_costs.apply(
+            lambda x: annualized_capex(
+                x.capex_variable, project_lifetime, x.lifetime, wacc
+            )
+            + x.opex_fix,
+            axis=1,
         )
 
     return df_costs, df_timeseries, df_settings
@@ -94,6 +99,16 @@ def encode_image_file(img_path):
     except FileNotFoundError:
         encoded_img = base64.b64encode(bytes())
     return encoded_img
+
+
+def annualized_capex(
+    investment_t0, project_lifetime, asset_lifetime=None, wacc=0.05, tax=0
+):
+    """Return output of capex_from_investment annualised"""
+    capex = capex_from_investment(
+        investment_t0, project_lifetime, asset_lifetime, wacc, tax
+    )
+    return annuity(capex, project_lifetime, wacc)
 
 
 def capex_from_investment(
