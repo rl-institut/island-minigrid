@@ -328,11 +328,11 @@ def run_simulation(df_costs, data, settings):
 
     results = solph.processing.results(model)
 
-    df_results = df_costs.copy()
-    df_results["capacity"] = 0
-    df_results["total_flow"] = 0
-    df_results["cash_flow"] = 0
-    df_results["cash_flow"] = 0
+    asset_results = df_costs.copy()
+    asset_results["capacity"] = 0
+    asset_results["total_flow"] = 0
+    asset_results["cash_flow"] = 0
+    asset_results["cash_flow"] = 0
 
     project_lifetime = 20
     wacc = 0.06
@@ -367,10 +367,10 @@ def run_simulation(df_costs, data, settings):
     if case in (case_BPV, case_DBPV):
         # Hourly profiles for solar potential and pv production.
         sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
-        df_results.loc["pv", "total_flow"] = sequences_pv.sum()
+        asset_results.loc["pv", "total_flow"] = sequences_pv.sum()
 
         # TODO find what we would like to have here
-        df_results.loc["battery", "total_flow"] = 0
+        asset_results.loc["battery", "total_flow"] = 0
 
     if case in (case_D, case_DBPV):
         # Hourly profiles for diesel consumption and electricity production
@@ -384,7 +384,7 @@ def run_simulation(df_costs, data, settings):
             / diesel_density
         )
 
-        df_results.loc["diesel_genset", "cash_flow"] = (
+        asset_results.loc["diesel_genset", "cash_flow"] = (
             diesel_cost * sequences_diesel_consumption.sum()
         )
 
@@ -406,8 +406,8 @@ def run_simulation(df_costs, data, settings):
         (("rectifier", "electricity_dc"), "flow")
     ]
 
-    df_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
-    df_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
+    asset_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
+    asset_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
 
     if case in (case_D, case_DBPV):
         # -------------------- SCALARS (STATIC) --------------------
@@ -420,7 +420,7 @@ def run_simulation(df_costs, data, settings):
         tol = 1e-8  # ADN ??
         load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
         sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
-        df_results.loc["diesel_genset", "total_flow"] = sequences_diesel_genset.sum()
+        asset_results.loc["diesel_genset", "total_flow"] = sequences_diesel_genset.sum()
     else:
         capacity_diesel_genset = 0
 
@@ -448,33 +448,33 @@ def run_simulation(df_costs, data, settings):
     else:
         capacity_rectifier = 0
 
-    df_results.loc["diesel_genset", "capacity"] = capacity_diesel_genset
-    df_results.loc["pv", "capacity"] = capacity_pv
-    df_results.loc["battery", "capacity"] = capacity_battery
-    df_results.loc["inverter", "capacity"] = capacity_inverter
-    df_results.loc["rectifier", "capacity"] = capacity_rectifier
+    asset_results.loc["diesel_genset", "capacity"] = capacity_diesel_genset
+    asset_results.loc["pv", "capacity"] = capacity_pv
+    asset_results.loc["battery", "capacity"] = capacity_battery
+    asset_results.loc["inverter", "capacity"] = capacity_inverter
+    asset_results.loc["rectifier", "capacity"] = capacity_rectifier
 
     # Scaling annuity to timeframe
     year_fraction = n_days / n_days_in_year
 
     # Compute annual costs for each components
-    df_results["annual_costs"] = df_results.apply(
+    asset_results["annual_costs"] = asset_results.apply(
         lambda x: (x.annuity * x.capacity) * year_fraction
         + x.total_flow * x.opex_variable,
         axis=1,
     )
 
-    df_results["total_opex_costs"] = df_results.apply(
+    asset_results["total_opex_costs"] = asset_results.apply(
         lambda x: (x.opex_fix * x.capacity) * year_fraction
         + x.total_flow * x.opex_variable,
         axis=1,
     )
 
     # Save the results
-    df_results = df_results[RESULTS_COLUMN_NAMES]
-    df_results.to_csv(f"results_{case}.csv")
+    asset_results = asset_results[RESULTS_COLUMN_NAMES]
+    asset_results.to_csv(f"results_{case}.csv")
 
-    NPV = (df_results.annual_costs.sum() + df_results.cash_flow.sum()) / CRF
+    NPV = (asset_results.annual_costs.sum() + asset_results.cash_flow.sum()) / CRF
 
     # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
@@ -518,7 +518,7 @@ def run_simulation(df_costs, data, settings):
         axis=0
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
-    total_opex_costs = df_results.total_opex_costs.sum() * project_lifetime
+    total_opex_costs = asset_results.total_opex_costs.sum() * project_lifetime
 
     ##########################################################################
     # Print the results in the terminal
@@ -534,7 +534,7 @@ def run_simulation(df_costs, data, settings):
         total_opex_costs=total_opex_costs,
         res=res,
     )
-    df_scalars = pd.DataFrame.from_records(
+    system_results = pd.DataFrame.from_records(
         [i for i in scalars.items()], columns=["param", "value"]
     ).set_index("param")
 
@@ -595,10 +595,10 @@ def run_simulation(df_costs, data, settings):
 
     return (
         results,
-        df_results,
+        asset_results,
         energy_system,
         result_div,
-        df_scalars,
+        system_results,
         date_time_index,
         non_critical_demand,
         critical_demand,
@@ -756,10 +756,10 @@ if __name__ == "__main__":
 
     (
         results,
-        df_results,
+        asset_results,
         energy_system,
         result_div,
-        df_scalars,
+        system_results,
         date_time_index,
         non_critical_demand,
         critical_demand,
@@ -820,8 +820,8 @@ if __name__ == "__main__":
             ),
             html.Div(
                 children=dash_table.DataTable(
-                    df_results.reset_index().to_dict("records"),
-                    [{"name": i, "id": i} for i in df_results.reset_index().columns],
+                    asset_results.reset_index().to_dict("records"),
+                    [{"name": i, "id": i} for i in asset_results.reset_index().columns],
                 )
             ),
             html.H3("Dynamic results"),
