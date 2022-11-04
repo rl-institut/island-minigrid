@@ -739,7 +739,7 @@ if __name__ == "__main__":
         raise FileNotFoundError(
             f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
         )
-    df_costs, data, settings = read_input_file(filename)
+    df_costs, data, settings, _ = read_input_file(filename)
 
     (
         results,
