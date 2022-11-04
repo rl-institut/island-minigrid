@@ -63,24 +63,6 @@ import plotly.graph_objs as go
 from utils import read_input_file, capex_from_investment, encode_image_file
 
 
-# Import data.
-current_directory = os.path.dirname(os.path.abspath(__file__))
-
-parser = argparse.ArgumentParser(
-    prog="python critical_demand.py",
-    description="Build a simple model with non critical demand",
-)
-parser.add_argument(
-    "-i",
-    dest="input_file",
-    nargs="?",
-    type=str,
-    help="path to the input file",
-    default=os.path.join(current_directory, "input_case.xlsx"),
-)
-
-args = vars(parser.parse_args())
-
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
@@ -93,14 +75,6 @@ def other_costs():
     diesel_lhv = 11.83  # kWh/kg
     return variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv
 
-
-filename = args.get("input_file")
-
-if not os.path.exists(filename):
-    raise FileNotFoundError(
-        f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
-    )
-df_costs, data, settings = read_input_file(filename)
 
 case_D = "D"
 case_DBPV = "DBPV"
@@ -740,163 +714,165 @@ def sankey(energy_system, results, ts=None):
     return fig.to_dict()
 
 
-(
-    results,
-    df_results,
-    energy_system,
-    result_div,
-    date_time_index,
-    non_critical_demand,
-    critical_demand,
-) = run_simulation(df_costs, data, settings)
-case = settings.case
-energy_system_graph = encode_image_file(f"case_{case}.png")
+if __name__ == "__main__":
+    # Import data.
+    current_directory = os.path.dirname(os.path.abspath(__file__))
 
-bus_figures = []
-if case == case_D:
-    busses = ["electricity_ac"]
-else:
-    busses = ["electricity_ac", "electricity_dc"]
-for bus in busses:
-    fig = go.Figure(layout=dict(title=f"{bus} bus node"))
-    for t, g in solph.views.node(results, node=bus)["sequences"].items():
-        idx_asset = abs(t[0].index(bus) - 1)
-
-        fig.add_trace(
-            go.Scatter(x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset])
-        )
-    bus_figures.append(fig)
-
-# loading external resources
-external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
-options = dict(
-    # external_stylesheets=external_stylesheets
-)
-
-demo_app = dash.Dash(__name__, **options)
-
-demo_app.layout = html.Div(
-    children=[
-        html.H3("Model inputs"),
-        html.Div(
-            children=[
-                html.P(f"{param.title()}: {settings[param]}")
-                for param in settings.index
-                if param != "port"
-            ],
-            style={"display": "flex", "justify-content": "space-evenly"},
-        ),
-        html.Div(
-            children=dash_table.DataTable(
-                df_costs.reset_index().to_dict("records"),
-                [{"name": i, "id": i} for i in df_costs.reset_index().columns],
-            )
-        ),
-        html.Div(children=[html.H3("Results in numbers"), result_div]),
-        html.Div(
-            children=[
-                html.H3("Non critical demand reduction overview"),
-                dcc.Graph(id="nc_demand_supply", figure=reduced_demand_fig(results)),
-            ]
-        ),
-        html.Div(
-            children=dash_table.DataTable(
-                df_results.reset_index().to_dict("records"),
-                [{"name": i, "id": i} for i in df_results.reset_index().columns],
-            )
-        ),
-        html.H3("Dynamic results"),
-        html.P(
-            children=[
-                "You can adjust the slider to get the energy flow at a single timestep, "
-                "or look for a specific timestep in the dropdown menu below ",
-                html.Span(
-                    "Note if you change the slider "
-                    "it will show the value in the dropdown menu, but it you change the dropdown menu directly "
-                    "it will not update the slider)"
-                ),
-            ]
-        ),
-        dcc.Slider(
-            id="ts_slice_slider",
-            value=1,
-            min=0,
-            max=len(date_time_index),
-            # marks={k: v for k, v in enumerate(date_time_index)},
-        ),
-        dcc.Dropdown(
-            id="ts_slice_select",
-            options={k: v for k, v in enumerate(date_time_index)},
-            value=None,
-        ),
-        dcc.Graph(id="sankey", figure=sankey(energy_system, results)),
-    ]
-    + [dcc.Graph(id=f"{bus}-id", figure=fig,) for bus, fig in zip(busses, bus_figures)]
-    + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
-    + [
-        html.H4(["Energy system"]),
-        html.Img(
-            src="data:image/png;base64,{}".format(energy_system_graph.decode()),
-            alt="Energy System Graph, if you do not see this image it is because pygraphviz is not installed. "
-            "If you are a windows user it might be complicated to install pygraphviz.",
-            style={"maxWidth": "100%"},
-        ),
-    ]
-)
-
-
-@demo_app.callback(
-    # The value of these components of the layout will be changed by this callback
-    [
-        Output(component_id="sankey", component_property="figure"),
-        Output(component_id="nc_demand_supply", component_property="figure"),
-    ]
-    + [Output(component_id=f"{bus}-id", component_property="figure") for bus in busses],
-    # Triggers the callback when the value of one of these components of the layout is changed
-    Input(component_id="ts_slice_select", component_property="value"),
-)
-def update_figures(ts):
-    ts = int(ts)
-    # see if case changes, otherwise do not rerun this
-    date_time_index = energy_system.timeindex
-
-    demand_fig = reduced_demand_fig(results)
-    max_y = non_critical_demand.max()
-    demand_fig.add_trace(
-        go.Scatter(
-            x=[date_time_index[ts], date_time_index[ts]],
-            y=[0, max_y],
-            name="none",
-            line_color="black",
-        )
+    parser = argparse.ArgumentParser(
+        prog="python critical_demand.py",
+        description="Build a simple model with non critical demand",
+    )
+    parser.add_argument(
+        "-i",
+        dest="input_file",
+        nargs="?",
+        type=str,
+        help="path to the input file",
+        default=os.path.join(current_directory, "input_case.xlsx"),
     )
 
+    args = vars(parser.parse_args())
+
+    filename = args.get("input_file")
+
+    if not os.path.exists(filename):
+        raise FileNotFoundError(
+            f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+        )
+    df_costs, data, settings = read_input_file(filename)
+
+    (
+        results,
+        df_results,
+        energy_system,
+        result_div,
+        date_time_index,
+        non_critical_demand,
+        critical_demand,
+    ) = run_simulation(df_costs, data, settings)
+    case = settings.case
+    energy_system_graph = encode_image_file(f"case_{case}.png")
+
     bus_figures = []
+    if case == case_D:
+        busses = ["electricity_ac"]
+    else:
+        busses = ["electricity_ac", "electricity_dc"]
     for bus in busses:
         fig = go.Figure(layout=dict(title=f"{bus} bus node"))
-        max_y = 0
         for t, g in solph.views.node(results, node=bus)["sequences"].items():
             idx_asset = abs(t[0].index(bus) - 1)
-            asset_name = t[0][idx_asset]
-            if t[0][idx_asset] == "battery":
-                if idx_asset == 0:
-                    asset_name += " discharge"
-                else:
-                    asset_name += " charge"
-            opts = {}
-            negative_sign = pow(-1, idx_asset)
-            opts["stackgroup"] = (
-                "negative_sign" if negative_sign < 0 else "positive_sign"
-            )
 
             fig.add_trace(
                 go.Scatter(
-                    x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                    x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset]
                 )
             )
-            if g.max() > max_y:
-                max_y = g.max()
-        fig.add_trace(
+        bus_figures.append(fig)
+
+    # loading external resources
+    external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
+    options = dict(
+        # external_stylesheets=external_stylesheets
+    )
+
+    demo_app = dash.Dash(__name__, **options)
+
+    demo_app.layout = html.Div(
+        children=[
+            html.H3("Model inputs"),
+            html.Div(
+                children=[
+                    html.P(f"{param.title()}: {settings[param]}")
+                    for param in settings.index
+                    if param != "port"
+                ],
+                style={"display": "flex", "justify-content": "space-evenly"},
+            ),
+            html.Div(
+                children=dash_table.DataTable(
+                    df_costs.reset_index().to_dict("records"),
+                    [{"name": i, "id": i} for i in df_costs.reset_index().columns],
+                )
+            ),
+            html.Div(children=[html.H3("Results in numbers"), result_div]),
+            html.Div(
+                children=[
+                    html.H3("Non critical demand reduction overview"),
+                    dcc.Graph(
+                        id="nc_demand_supply", figure=reduced_demand_fig(results)
+                    ),
+                ]
+            ),
+            html.Div(
+                children=dash_table.DataTable(
+                    df_results.reset_index().to_dict("records"),
+                    [{"name": i, "id": i} for i in df_results.reset_index().columns],
+                )
+            ),
+            html.H3("Dynamic results"),
+            html.P(
+                children=[
+                    "You can adjust the slider to get the energy flow at a single timestep, "
+                    "or look for a specific timestep in the dropdown menu below ",
+                    html.Span(
+                        "Note if you change the slider "
+                        "it will show the value in the dropdown menu, but it you change the dropdown menu directly "
+                        "it will not update the slider)"
+                    ),
+                ]
+            ),
+            dcc.Slider(
+                id="ts_slice_slider",
+                value=1,
+                min=0,
+                max=len(date_time_index),
+                # marks={k: v for k, v in enumerate(date_time_index)},
+            ),
+            dcc.Dropdown(
+                id="ts_slice_select",
+                options={k: v for k, v in enumerate(date_time_index)},
+                value=None,
+            ),
+            dcc.Graph(id="sankey", figure=sankey(energy_system, results)),
+        ]
+        + [
+            dcc.Graph(id=f"{bus}-id", figure=fig,)
+            for bus, fig in zip(busses, bus_figures)
+        ]
+        + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
+        + [
+            html.H4(["Energy system"]),
+            html.Img(
+                src="data:image/png;base64,{}".format(energy_system_graph.decode()),
+                alt="Energy System Graph, if you do not see this image it is because pygraphviz is not installed. "
+                "If you are a windows user it might be complicated to install pygraphviz.",
+                style={"maxWidth": "100%"},
+            ),
+        ]
+    )
+
+    @demo_app.callback(
+        # The value of these components of the layout will be changed by this callback
+        [
+            Output(component_id="sankey", component_property="figure"),
+            Output(component_id="nc_demand_supply", component_property="figure"),
+        ]
+        + [
+            Output(component_id=f"{bus}-id", component_property="figure")
+            for bus in busses
+        ],
+        # Triggers the callback when the value of one of these components of the layout is changed
+        Input(component_id="ts_slice_select", component_property="value"),
+    )
+    def update_figures(ts):
+        ts = int(ts)
+        # see if case changes, otherwise do not rerun this
+        date_time_index = energy_system.timeindex
+
+        demand_fig = reduced_demand_fig(results)
+        max_y = non_critical_demand.max()
+        demand_fig.add_trace(
             go.Scatter(
                 x=[date_time_index[ts], date_time_index[ts]],
                 y=[0, max_y],
@@ -904,23 +880,54 @@ def update_figures(ts):
                 line_color="black",
             )
         )
-        bus_figures.append(fig)
 
-    return [
-        sankey(energy_system, results, date_time_index[ts]),
-        demand_fig,
-    ] + bus_figures
+        bus_figures = []
+        for bus in busses:
+            fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+            max_y = 0
+            for t, g in solph.views.node(results, node=bus)["sequences"].items():
+                idx_asset = abs(t[0].index(bus) - 1)
+                asset_name = t[0][idx_asset]
+                if t[0][idx_asset] == "battery":
+                    if idx_asset == 0:
+                        asset_name += " discharge"
+                    else:
+                        asset_name += " charge"
+                opts = {}
+                negative_sign = pow(-1, idx_asset)
+                opts["stackgroup"] = (
+                    "negative_sign" if negative_sign < 0 else "positive_sign"
+                )
 
+                fig.add_trace(
+                    go.Scatter(
+                        x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                    )
+                )
+                if g.max() > max_y:
+                    max_y = g.max()
+            fig.add_trace(
+                go.Scatter(
+                    x=[date_time_index[ts], date_time_index[ts]],
+                    y=[0, max_y],
+                    name="none",
+                    line_color="black",
+                )
+            )
+            bus_figures.append(fig)
 
-@demo_app.callback(
-    # The value of these components of the layout will be changed by this callback
-    Output(component_id="ts_slice_select", component_property="value"),
-    # Triggers the callback when the value of one of these components of the layout is changed
-    Input(component_id="ts_slice_slider", component_property="value"),
-)
-def change_ts_value(val):
-    return val
+        return [
+            sankey(energy_system, results, date_time_index[ts]),
+            demand_fig,
+        ] + bus_figures
 
+    @demo_app.callback(
+        # The value of these components of the layout will be changed by this callback
+        Output(component_id="ts_slice_select", component_property="value"),
+        # Triggers the callback when the value of one of these components of the layout is changed
+        Input(component_id="ts_slice_slider", component_property="value"),
+    )
+    def change_ts_value(val):
+        return val
 
-if __name__ == "__main__":
     demo_app.run_server(debug=True, port=settings.port)
