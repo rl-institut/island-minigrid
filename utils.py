@@ -161,14 +161,14 @@ def capex_from_investment(
                     (1 + wacc) ** (count_of_replacements * asset_lifetime)
                 )
 
-    # Substraction of component value at end of life with last replacement (= number_of_investments - 1)
-    if number_of_investments * asset_lifetime > project_lifetime:
-        last_investment = first_time_investment / (
-            (1 + wacc) ** ((number_of_investments - 1) * asset_lifetime)
-        )
-        linear_depreciation_last_investment = last_investment / asset_lifetime
-        capex = capex - linear_depreciation_last_investment * (
-            number_of_investments * asset_lifetime - project_lifetime
-        ) / ((1 + wacc) ** (project_lifetime))
+    # # Substraction of component value at end of life with last replacement (= number_of_investments - 1)
+    # if number_of_investments * asset_lifetime > project_lifetime:
+    #     last_investment = first_time_investment / (
+    #         (1 + wacc) ** ((number_of_investments - 1) * asset_lifetime)
+    #     )
+    #     linear_depreciation_last_investment = last_investment / asset_lifetime
+    #     capex = capex - linear_depreciation_last_investment * (
+    #         number_of_investments * asset_lifetime - project_lifetime
+    #     ) / ((1 + wacc) ** (project_lifetime))
 
     return capex
