@@ -83,7 +83,7 @@ def read_input_file(filename):
             raise ValueError(
                 f"The column header '{hd}' is missing in your input file {filename} under the '{name}' sheet"
             )
-    df_sensitivity = pd.DataFrame(tuple(wb[name].values)[2:], columns=headers)
+    df_sensitivity = pd.DataFrame(tuple(wb[name].values)[2:], columns=headers).dropna()
     if df_sensitivity.empty is False:
         return df_costs, df_timeseries, df_settings, df_sensitivity
     else:
