@@ -102,46 +102,45 @@ if not os.path.exists(filename):
     )
 df_costs, data, settings = read_input_file(filename)
 
-start_date_obj = settings.start
-
-# The maximum number of days depends on the given *.csv file.
-n_days = settings.n_days
-n_days_in_year = 365
-
 case_D = "D"
 case_DBPV = "DBPV"
 case_BPV = "BPV"
 
-case = settings.case
-demand_reduction_factor = settings.maximum_demand_reduction
 
-epc = df_costs["annuity"]
-lifetime = df_costs["lifetime"]
+def run_simulation(df_costs, data, settings):
 
-# Change the index of data to be able to select data based on the time range.
-data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
+    start_date_obj = settings.start
 
+    # The maximum number of days depends on the given *.csv file.
+    n_days = settings.n_days
+    n_days_in_year = 365
 
-# Create date and time objects.
-start_date = start_date_obj.date()
-start_time = start_date_obj.time()
-start_datetime = datetime.combine(start_date_obj.date(), start_date_obj.time())
-end_datetime = start_datetime + timedelta(days=n_days)
+    case = settings.case
+    demand_reduction_factor = settings.maximum_demand_reduction
 
-# Create the energy system.
-date_time_index = pd.date_range(start=start_date, periods=n_days * 24, freq="H")
+    epc = df_costs["annuity"]
 
-# Choose the range of the solar potential and demand
-# based on the selected simulation period.
-solar_potential = data.SolarGen.loc[start_datetime:end_datetime]
-hourly_demand = data.Demand.loc[start_datetime:end_datetime]
-non_critical_demand = hourly_demand
-critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
-peak_solar_potential = solar_potential.max()
-peak_demand = hourly_demand.max()
+    # Change the index of data to be able to select data based on the time range.
+    data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
 
+    # Create date and time objects.
+    start_date = start_date_obj.date()
+    start_time = start_date_obj.time()
+    start_datetime = datetime.combine(start_date_obj.date(), start_date_obj.time())
+    end_datetime = start_datetime + timedelta(days=n_days)
 
-def run_simulation(n_days=n_days, case=case):
+    # Create the energy system.
+    date_time_index = pd.date_range(start=start_date, periods=n_days * 24, freq="H")
+
+    # Choose the range of the solar potential and demand
+    # based on the selected simulation period.
+    solar_potential = data.SolarGen.loc[start_datetime:end_datetime] + 0.3
+    hourly_demand = data.Demand.loc[start_datetime:end_datetime]
+    non_critical_demand = hourly_demand
+    critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
+    peak_solar_potential = solar_potential.max()
+    peak_demand = hourly_demand.max()
+
     variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv = other_costs()
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
@@ -491,7 +490,7 @@ def run_simulation(n_days=n_days, case=case):
     )
 
     # Save the results
-    df_results[
+    df_results = df_results[
         [
             "annuity",
             "annual_costs",
@@ -500,7 +499,8 @@ def run_simulation(n_days=n_days, case=case):
             "cash_flow",
             "total_opex_costs",
         ]
-    ].to_csv(f"results_{case}.csv")
+    ]
+    df_results.to_csv(f"results_{case}.csv")
 
     NPV = (df_results.annual_costs.sum() + df_results.cash_flow.sum()) / CRF
 
@@ -607,7 +607,15 @@ def run_simulation(n_days=n_days, case=case):
         ]
     )
 
-    return results, energy_system, result_div
+    return (
+        results,
+        df_results,
+        energy_system,
+        result_div,
+        date_time_index,
+        non_critical_demand,
+        critical_demand,
+    )
 
 
 def reduced_demand_fig(results):
@@ -644,7 +652,7 @@ def reduced_demand_fig(results):
             ),
             go.Scatter(
                 x=sequences_demand.index,
-                y=nc_demand * (1 - demand_reduction_factor),
+                y=nc_demand * (1 - settings.maximum_demand_reduction),
                 name="max demand reduction",
                 line_color="#FE6100",
                 line_dash="dash",
@@ -703,8 +711,6 @@ def sankey(energy_system, results, ts=None):
                 val = flows[((bus_label, component.label), "flow")].sum()
                 if ts is not None:
                     val = flows[((bus_label, component.label), "flow")][ts]
-                # if val == 0:
-                #     val = 1
                 values.append(val)
 
     fig = go.Figure(
@@ -734,7 +740,16 @@ def sankey(energy_system, results, ts=None):
     return fig.to_dict()
 
 
-results, energy_system, result_div = run_simulation(n_days=n_days, case=case)
+(
+    results,
+    df_results,
+    energy_system,
+    result_div,
+    date_time_index,
+    non_critical_demand,
+    critical_demand,
+) = run_simulation(df_costs, data, settings)
+case = settings.case
 energy_system_graph = encode_image_file(f"case_{case}.png")
 
 bus_figures = []
@@ -795,7 +810,7 @@ demo_app.layout = html.Div(
             id="ts_slice_slider",
             value=1,
             min=0,
-            max=n_days * 24,
+            max=len(date_time_index),
             # marks={k: v for k, v in enumerate(date_time_index)},
         ),
         dcc.Dropdown(
