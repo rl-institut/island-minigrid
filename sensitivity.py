@@ -13,7 +13,20 @@ import numpy as np
 import pandas as pd
 
 
-def sentitivity_analysis(filename):
+def update_sa_results(results, sa_results, var_name, value, category=None):
+    results["sa_input_variable_category"] = category
+    results["sa_input_variable_name"] = var_name
+    results["sa_input_variable_value"] = value
+
+    results = results.reset_index()
+    if sa_results is None:
+        answer = results
+    else:
+        answer = pd.concat([sa_results, results], ignore_index=True)
+    return answer
+
+
+def sensitivity_analysis(filename):
 
     df_costs, df_timeseries, df_settings, df_sensitivity = read_input_file(filename)
 
@@ -42,15 +55,21 @@ def sentitivity_analysis(filename):
                     non_critical_demand,
                     critical_demand,
                 ) = run_simulation(df_costs, df_timeseries, df_settings)
-                system_results["sa_input_variable_name"] = row.variable_name
-                system_results["sa_input_variable_value"] = val
-                system_results = system_results.reset_index()
-                if system_sa_results is None:
-                    system_sa_results = system_results
-                else:
-                    system_sa_results = pd.concat(
-                        [system_sa_results, system_results], ignore_index=True
-                    )
+                system_sa_results = update_sa_results(
+                    system_results,
+                    system_sa_results,
+                    var_name=row.variable_name,
+                    value=val,
+                    category="settings",
+                )
+                assets_sa_results = update_sa_results(
+                    asset_results,
+                    assets_sa_results,
+                    var_name=row.variable_name,
+                    value=val,
+                    category="settings",
+                )
+
             df_settings.loc[row.variable_name] = initial_val
         else:
             initial_val = df_costs.loc[row.category, row.variable_name]
@@ -66,19 +85,25 @@ def sentitivity_analysis(filename):
                     non_critical_demand,
                     critical_demand,
                 ) = run_simulation(df_costs, df_timeseries, df_settings)
-                asset_results["sa_input_variable_name"] = row.variable_name
-                asset_results["sa_input_variable_value"] = val
-                asset_results = asset_results.reset_index()
-                if assets_sa_results is None:
-                    assets_sa_results = asset_results
-                else:
-                    assets_sa_results = pd.concat(
-                        [assets_sa_results, asset_results], ignore_index=True
-                    )
+                system_sa_results = update_sa_results(
+                    system_results,
+                    system_sa_results,
+                    var_name=row.variable_name,
+                    value=val,
+                    category=row.category,
+                )
+                assets_sa_results = update_sa_results(
+                    asset_results,
+                    assets_sa_results,
+                    var_name=row.variable_name,
+                    value=val,
+                    category=row.category,
+                )
+
             df_costs.loc[row.category, row.variable_name] = initial_val
 
-    system_sa_results.to_csv("system_sa_results.csv")
-    assets_sa_results.to_csv("assets_sa_results.csv")
+    system_sa_results.to_csv("system_sa_results.csv", index=False)
+    assets_sa_results.to_csv("assets_sa_results.csv", index=False)
     return system_sa_results, assets_sa_results
 
 
@@ -109,7 +134,7 @@ if __name__ == "__main__":
         )
 
     if not os.path.exists("system_sa_results.csv"):
-        system_sa_results, assets_sa_results = sensitivity_analysis()
+        system_sa_results, assets_sa_results = sensitivity_analysis(filename)
     else:
         system_sa_results = pd.read_csv("system_sa_results.csv")
         assets_sa_results = pd.read_csv("assets_sa_results.csv")
