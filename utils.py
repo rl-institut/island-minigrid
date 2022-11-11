@@ -75,7 +75,23 @@ def read_input_file(filename):
             axis=1,
         )
 
-    return df_costs, df_timeseries, df_settings
+    name = "sensitivity"
+    headers = [c.value for c in wb[name][1]]
+
+    for hd in ("category", "variable_name", "min_val", "max_val", "step"):
+        if hd not in headers:
+            raise ValueError(
+                f"The column header '{hd}' is missing in your input file {filename} under the '{name}' sheet"
+            )
+    df_sensitivity = pd.DataFrame(tuple(wb[name].values)[2:], columns=headers).dropna()
+    if df_sensitivity.empty is False:
+        return df_costs, df_timeseries, df_settings, df_sensitivity
+    else:
+        return (
+            df_costs,
+            df_timeseries,
+            df_settings,
+        )
 
 
 def encode_image_file(img_path):
