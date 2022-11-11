@@ -274,13 +274,19 @@ if __name__ == "__main__":
                 component_id="input_sa_variable_dropdown", component_property="value"
             ),
             Input(
-                component_id="output_sa_variable_dropdown", component_property="value",
+                component_id="output_sa_variable_dropdown",
+                component_property="value",
             ),
             Input(
-                component_id="output_sa_category_dropdown", component_property="value",
+                component_id="output_sa_category_dropdown",
+                component_property="value",
             ),
         ],
-        [State(component_id="input_sa_category_dropdown", component_property="value"),],
+        [
+            State(
+                component_id="input_sa_category_dropdown", component_property="value"
+            ),
+        ],
     )
     def change_asset_variable_value(
         var_name, output_var_name, output_category, category

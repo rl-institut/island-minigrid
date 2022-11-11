@@ -207,7 +207,9 @@ def run_simulation(df_costs, data, settings):
             )
         },
         outputs={b_el_dc: solph.Flow()},
-        conversion_factor={b_el_dc: 0.98,},
+        conversion_factor={
+            b_el_dc: 0.98,
+        },
     )
 
     # The inverter assumed to have a fixed efficiency of 98%.
@@ -224,7 +226,9 @@ def run_simulation(df_costs, data, settings):
             )
         },
         outputs={b_el_ac: solph.Flow()},
-        conversion_factor={b_el_ac: 0.98,},
+        conversion_factor={
+            b_el_ac: 0.98,
+        },
     )
 
     # -------------------- STORAGE --------------------
@@ -272,28 +276,42 @@ def run_simulation(df_costs, data, settings):
     )
 
     excess_el = solph.Sink(
-        label="excess_el", inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
+        label="excess_el",
+        inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
     )
 
     energy_system.add(
-        b_el_dc, b_el_ac, inverter, rectifier, demand_el, critical_demand_el, excess_el,
+        b_el_dc,
+        b_el_ac,
+        inverter,
+        rectifier,
+        demand_el,
+        critical_demand_el,
+        excess_el,
     )
 
     # Add all objects to the energy system.
     if case == case_BPV:
         energy_system.add(
-            pv, battery,
+            pv,
+            battery,
         )
 
     if case == case_DBPV:
         energy_system.add(
-            pv, battery, diesel_source, diesel_genset, b_diesel,
+            pv,
+            battery,
+            diesel_source,
+            diesel_genset,
+            b_diesel,
         )
 
     # TODO set the if case
     if case == case_D:
         energy_system.add(
-            diesel_source, diesel_genset, b_diesel,
+            diesel_source,
+            diesel_genset,
+            b_diesel,
         )
     ##########################################################################
     # Optimise the energy system
@@ -851,7 +869,10 @@ if __name__ == "__main__":
             dcc.Graph(id="sankey", figure=sankey(energy_system, results)),
         ]
         + [
-            dcc.Graph(id=f"{bus}-id", figure=fig,)
+            dcc.Graph(
+                id=f"{bus}-id",
+                figure=fig,
+            )
             for bus, fig in zip(busses, bus_figures)
         ]
         + [dcc.Graph(id="sankey_aggregate", figure=sankey(energy_system, results))]
