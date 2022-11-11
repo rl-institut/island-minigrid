@@ -182,26 +182,28 @@ if __name__ == "__main__":
             html.Label(htmlFor="input_sa_category_dropdown", children="Category"),
             dcc.Dropdown(
                 id="input_sa_category_dropdown",
-                options={v: v for v in categories},
+                options=[{"label": v, "value": v} for v in categories],
                 value=categories[0],
             ),
             html.Label(htmlFor="input_sa_variable_dropdown", children="Parameter name"),
             dcc.Dropdown(
                 id="input_sa_variable_dropdown",
-                options={v: v for v in assets_variables},
+                options=[{"label": v, "value": v} for v in assets_variables],
                 value=assets_variables[0],
             ),
             html.H3("Output variable (y axis)"),
             html.Label(htmlFor="output_sa_category_dropdown", children="Category"),
             dcc.Dropdown(
                 id="output_sa_category_dropdown",
-                options={v: v for v in ["kpi"] + assets_output_categories},
+                options=[
+                    {"label": v, "value": v} for v in ["kpi"] + assets_output_categories
+                ],
                 value=assets_output_categories[0],
             ),
             html.Label(htmlFor="output_sa_variable_dropdown", children="Variable name"),
             dcc.Dropdown(
                 id="output_sa_variable_dropdown",
-                options={v: v for v in assets_output_variables},
+                options=[{"label": v, "value": v} for v in assets_output_variables],
                 value=assets_output_variables[0],
             ),
             html.Div(id="graph-area"),
@@ -241,7 +243,7 @@ if __name__ == "__main__":
             .sa_input_variable_name.unique()
             .tolist()
         )
-        return variables[0], {v: v for v in variables}
+        return variables[0], [{"label": v, "value": v} for v in variables]
 
     @demo_app.callback(
         # The value of these components of the layout will be changed by this callback
@@ -261,7 +263,7 @@ if __name__ == "__main__":
             variables = system_output_variables
         else:
             variables = assets_output_variables
-        return variables[0], {v: v for v in variables}
+        return variables[0], [{"label": v, "value": v} for v in variables]
 
     @demo_app.callback(
         # The value of these components of the layout will be changed by this callback
