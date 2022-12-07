@@ -350,7 +350,6 @@ def run_simulation(df_costs, data, settings):
     asset_results["capacity"] = 0
     asset_results["total_flow"] = 0
     asset_results["cash_flow"] = 0
-    asset_results["cash_flow"] = 0
 
     project_lifetime = 20
     wacc = 0.06
@@ -475,6 +474,11 @@ def run_simulation(df_costs, data, settings):
     # Scaling annuity to timeframe
     year_fraction = n_days / n_days_in_year
 
+    asset_results["first_investment"] = asset_results.apply(
+        lambda x: (x.annuity * x.capacity) * year_fraction,
+        axis=1,
+    )
+
     # Compute annual costs for each components
     asset_results["annual_costs"] = asset_results.apply(
         lambda x: (x.annuity * x.capacity) * year_fraction
@@ -560,6 +564,8 @@ def run_simulation(df_costs, data, settings):
     print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
     print(f"Total opex costs :\t\t {total_opex_costs:.2f}")
+    print(f"First investment :\t\t {asset_results.first_investments.sum():.2f} USD")
+    print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
     print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
@@ -586,6 +592,8 @@ def run_simulation(df_costs, data, settings):
                 children=[
                     html.P(f"Peak Demand:\t {sequences_demand.max():.0f} kW"),
                     html.P(f"LCOE:\t\t {lcoe:.2f} cent/kWh"),
+                    html.P(f"First investment :\t\t {:.2f}"),
+                    html.P(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year"),
                     html.P(f"RES:\t\t {res:.0f}%"),
                     html.P(f"Excess:\t\t {excess_rate:.1f}% of the total production"),
                     html.P(
