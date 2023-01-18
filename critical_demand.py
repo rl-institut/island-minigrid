@@ -834,18 +834,42 @@ if __name__ == "__main__":
     if case == case_D:
         busses = ["electricity_ac"]
     else:
-        busses = ["electricity_ac", "electricity_dc"]
+        busses = ["electricity_ac", "electricity_dc", "battery"]
+
     for bus in busses:
-        fig = go.Figure(layout=dict(title=f"{bus} bus node"))
-        for t, g in solph.views.node(results, node=bus)["sequences"].items():
-            idx_asset = abs(t[0].index(bus) - 1)
+        if bus != "battery":
+            fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+            for t, g in solph.views.node(results, node=bus)["sequences"].items():
+                idx_asset = abs(t[0].index(bus) - 1)
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset]
+                    )
+                )
+        else:
+            capacity_battery = asset_results.capacity.battery
+            if capacity_battery != 0:
+                soc_battery = solph.views.node(results, node=bus)["sequences"][
+                                  (("battery", "None"), "storage_content")] / capacity_battery
+            else:
+                soc_battery = solph.views.node(results, node=bus)["sequences"][
+                    (("battery", "None"), "storage_content")]
+
+            fig = go.Figure(layout=dict(title=f"{bus} node"))
 
             fig.add_trace(
                 go.Scatter(
-                    x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset]
+                    x=soc_battery.index, y=soc_battery.values, name="soc battery"
                 )
             )
+
         bus_figures.append(fig)
+
+    # only in case of battery --> WHY DOESN#T it WORK???
+    if case != case_D:
+        bus = "battery"
+
 
     # loading external resources
     external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
@@ -963,29 +987,56 @@ if __name__ == "__main__":
 
         bus_figures = []
         for bus in busses:
-            fig = go.Figure(layout=dict(title=f"{bus} bus node"))
-            max_y = 0
-            for t, g in solph.views.node(results, node=bus)["sequences"].items():
-                idx_asset = abs(t[0].index(bus) - 1)
-                asset_name = t[0][idx_asset]
-                if t[0][idx_asset] == "battery":
-                    if idx_asset == 0:
-                        asset_name += " discharge"
-                    else:
-                        asset_name += " charge"
-                opts = {}
-                negative_sign = pow(-1, idx_asset)
-                opts["stackgroup"] = (
-                    "negative_sign" if negative_sign < 0 else "positive_sign"
-                )
+            if bus != "battery":
+                fig = go.Figure(layout=dict(title=f"{bus} bus node"))
+                max_y = 0
+                for t, g in solph.views.node(results, node=bus)["sequences"].items():
+                    idx_asset = abs(t[0].index(bus) - 1)
+                    asset_name = t[0][idx_asset]
+                    if t[0][idx_asset] == "battery":
+                        if idx_asset == 0:
+                            asset_name += " discharge"
+                        else:
+                            asset_name += " charge"
+                    opts = {}
+                    negative_sign = pow(-1, idx_asset)
+                    opts["stackgroup"] = (
+                        "negative_sign" if negative_sign < 0 else "positive_sign"
+                    )
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                        )
+                    )
+                    if g.max() > max_y:
+                        max_y = g.max()
+            else:
+                capacity_battery = asset_results.capacity.battery
+                if capacity_battery != 0:
+                    soc_battery = solph.views.node(results, node=bus)["sequences"][
+                                      (("battery", "None"), "storage_content")] / capacity_battery
+                else:
+                    soc_battery = solph.views.node(results, node=bus)["sequences"][
+                        (("battery", "None"), "storage_content")]
+
+                fig = go.Figure(layout=dict(title=f"{bus} node", yaxis_range=[0,1]))
 
                 fig.add_trace(
                     go.Scatter(
-                        x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                        x=soc_battery.index, y=soc_battery.values, name="soc battery"
                     )
                 )
-                if g.max() > max_y:
-                    max_y = g.max()
+                fig.add_trace(
+                    go.Scatter(
+                        x=soc_battery.index, y=np.ones(len(soc_battery.index))*settings.storage_soc_min, name="min soc battery"
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=soc_battery.index, y=np.ones(len(soc_battery.index))*settings.storage_soc_max, name="max soc battery"
+                    )
+                )
             fig.add_trace(
                 go.Scatter(
                     x=[date_time_index[ts], date_time_index[ts]],
