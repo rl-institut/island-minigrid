@@ -69,6 +69,7 @@ RESULTS_COLUMN_NAMES = [
     "capacity",
     "cash_flow",
     "total_opex_costs",
+    "first_investment"
 ]
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
@@ -560,47 +561,84 @@ def run_simulation(df_costs, data, settings):
         [i for i in scalars.items()], columns=["param", "value"]
     ).set_index("param")
 
+    help_lcoe = """The lcoe is calculated as : (NPV * CRF) / (total critical demand supplied + total non critical demand supplied)
+    NPV = sum_i{ annual_costs_i + cash_flow_i)} / CRF (where the sum is over each asset)
+
+    NPV = sum_i{ annual_costs_i + fuel_cost_per_liter_i * consumed_liters_i)} / CRF 
+
+    NPV = sum_i{ annual_costs_i + fuel_cost_per_liter_i * consumed_liters_i)} / CRF ( the consumed_liter_i is equal to the total_flow_i / fuel_energy_density_i / fuel_density_i
+
+    NPV = sum_i{annuity_i * optimized_capacity_i) * year_fraction + total_flow_i * opex_variable_i + fuel_cost_per_liter_i * consumed_liters_i} / CRF
+
+    Note: the CRF factors do cancel each other out in the lcoe calculation
+
+    Note: CRF = (wacc * (1 + wacc) ** n) / ((1 + wacc) ** n - 1), where n ( project_lifetime in years) and wacc are user inputs
+    
+    Note the annuity of an asset is either a user input (if provided under the column "annuity" under "costs" tab of input file) or calculated from the capex_variable and opex_fix provided by the user
+    
+    If the asset lifetime is greater or equal to the project lifetime, there is no need to change the asset during the 
+    project and the annuity of one asset is calculated the following way:
+    
+    annuity_i = capex_variable_i * (wacc * (1 + wacc) ** n) / ((1 + wacc) ** n - 1)  + opex_fix_i (1)
+    
+    If the asset lifetime is smaller than the project lifetime, there are replacement costs
+    
+    The quantity capex_variable_i * (wacc * (1 + wacc) ** n) / ((1 + wacc) ** n - 1) in equation (1) above 
+    is equal to the first_time_investment, in case of replacement of assets this has to be adapted like:
+    
+    sum_j{first_time_investment/(1 + wacc) ** (j * asset_lifetime)} (where j goes from 0 up to the number of 
+    replacements of the asset)
+    
+    And the annuity becomes:
+    annuity_i = sum_j{first_time_investment/(1 + wacc) ** (j * asset_lifetime)}  + opex_fix_i
+    
+    annuity_i = sum_j{capex_variable_i * (1 + 1/ * (wacc * (1 + wacc) ** n) / (((1 + wacc) ** n - 1) * (1 + wacc) ** (j * asset_lifetime))}  + opex_fix_i
+
+    Reminder: annuity is only calculated that way if NOT provided explicitly by the user
+
+    """
+
     print(50 * "*")
     print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
-    print(f"Total opex costs :\t\t {total_opex_costs:.2f}")
-    print(f"First investment :\t\t {asset_results.first_investments.sum():.2f} USD")
+    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD")
+    print(f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD")
     print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
     print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
     print(f"Original demand:\t\t {original_demand:.1f} kWh")
     print(
-        f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}% of the total critical demand"
+        f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.0f}% of the total critical demand"
     )
     print(
-        f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.1f}% of the total non critical demand"
+        f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.0f}% of the total non critical demand"
     )
     print(50 * "*")
     print("Optimal Capacities:")
     print("-------------------")
-    print(f"Diesel Genset:\t {capacity_diesel_genset:.0f} kW")
-    print(f"PV:\t\t {capacity_pv:.0f} kW")
-    print(f"Battery:\t {capacity_battery:.0f} kW")
-    print(f"Inverter:\t {capacity_inverter:.0f} kW")
-    print(f"Rectifier:\t {capacity_rectifier:.0f} kW")
+    print(f"Diesel Genset:\t {capacity_diesel_genset:.1f} kW")
+    print(f"PV:\t\t {capacity_pv:.1f} kW")
+    print(f"Battery:\t {capacity_battery:.1f} kWh")
+    print(f"Inverter:\t {capacity_inverter:.1f} kW")
+    print(f"Rectifier:\t {capacity_rectifier:.1f} kW")
     print(50 * "*")
 
     result_div = html.Div(
         children=[
             html.Div(
                 children=[
-                    html.P(f"Peak Demand:\t {sequences_demand.max():.0f} kW"),
-                    html.P(f"LCOE:\t\t {lcoe:.2f} cent/kWh"),
-                    html.P(f"First investment :\t\t {:.2f}"),
+                    html.P(f"Peak Demand:\t {sequences_demand.max():.1f} kW"),
+                    html.P(f"LCOE:\t\t {lcoe:.2f} cent/kWh", title=help_lcoe),
+                    html.P(f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD", title="It is the sum of the product of optimized capacity and annualized costs of each asset"),
                     html.P(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year"),
                     html.P(f"RES:\t\t {res:.0f}%"),
                     html.P(f"Excess:\t\t {excess_rate:.1f}% of the total production"),
                     html.P(
-                        f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.1f}%"
+                        f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.0f}%"
                     ),
                     html.P(
-                        f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.1f}%"
+                        f"Share of non-critical demand fulfilled :\t\t {demand_fulfilled:.0f}%"
                     ),
                 ],
                 style={"display": "flex", "justify-content": "space-between"},
@@ -608,11 +646,11 @@ def run_simulation(df_costs, data, settings):
             html.H3("Optimal Capacities:"),
             html.Div(
                 children=[
-                    html.P(f"Diesel Genset:\t {capacity_diesel_genset:.0f} kW"),
-                    html.P(f"PV:\t\t {capacity_pv:.0f} kW"),
-                    html.P(f"Battery:\t {capacity_battery:.0f} kW"),
-                    html.P(f"Inverter:\t {capacity_inverter:.0f} kW"),
-                    html.P(f"Rectifier:\t {capacity_rectifier:.0f} kW"),
+                    html.P(f"Diesel Genset:\t {capacity_diesel_genset:.1f} kW"),
+                    html.P(f"PV:\t\t {capacity_pv:.1f} kW"),
+                    html.P(f"Battery:\t {capacity_battery:.1f} kWh"),
+                    html.P(f"Inverter:\t {capacity_inverter:.1f} kW"),
+                    html.P(f"Rectifier:\t {capacity_rectifier:.1f} kW"),
                 ],
                 style={"display": "flex", "justify-content": "space-between"},
             ),
