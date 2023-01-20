@@ -475,7 +475,7 @@ def run_simulation(df_costs, data, settings):
     year_fraction = n_days / n_days_in_year
 
     asset_results["first_investment"] = asset_results.apply(
-        lambda x: (x.annuity * x.capacity) * year_fraction,
+        lambda x: (x.capex_variable * x.capacity) * year_fraction,
         axis=1,
     )
 
