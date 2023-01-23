@@ -67,7 +67,7 @@ RESULTS_COLUMN_NAMES = [
     "annual_costs",
     "total_flow",
     "capacity",
-    "cash_flow",
+    "cash_flow", # AA: could be named fuel_expenditure_cost
     "total_opex_costs",
     "first_investment"
 ]
@@ -77,8 +77,8 @@ RESULTS_COLUMN_NAMES = [
 
 
 def other_costs():
-    variable_cost_diesel_genset = 0.045  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
-    diesel_cost = 0.65  # currency/l
+    variable_cost_diesel_genset = 0.025  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
+    diesel_cost = 1  # currency/l
     diesel_density = 0.846  # kg/l
     diesel_lhv = 11.83  # kWh/kg
     return variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv
@@ -87,7 +87,7 @@ def other_costs():
 case_D = "D"
 case_DBPV = "DBPV"
 case_BPV = "BPV"
-
+project_planning_cost = 5000
 
 def run_simulation(df_costs, data, settings):
 
@@ -116,7 +116,7 @@ def run_simulation(df_costs, data, settings):
 
     # Choose the range of the solar potential and demand
     # based on the selected simulation period.
-    solar_potential = data.SolarGen.loc[start_datetime:end_datetime] + 0.3
+    solar_potential = data.SolarGen.loc[start_datetime:end_datetime]
     hourly_demand = data.Demand.loc[start_datetime:end_datetime]
     non_critical_demand = hourly_demand
     critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
@@ -193,7 +193,7 @@ def run_simulation(df_costs, data, settings):
             },
             conversion_factors={b_el_ac: diesel_genset_efficiency},
         )
-
+    #import ipdb;ipdb.set_trace()
     # The rectifier assumed to have a fixed efficiency of 98%.
     # its cost already included in the PV cost investment
     rectifier = solph.Transformer(
@@ -239,7 +239,7 @@ def run_simulation(df_costs, data, settings):
             label="battery",
             nominal_storage_capacity=None,
             investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
-            inputs={b_el_dc: solph.Flow(variable_costs=0.01)},
+            inputs={b_el_dc: solph.Flow(variable_costs=0.01)},# AA: might be replaced by user input's opex_fixed
             outputs={b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))},
             min_storage_level=settings.storage_soc_min,
             max_storage_level=settings.storage_soc_max,
@@ -247,7 +247,7 @@ def run_simulation(df_costs, data, settings):
             inflow_conversion_factor=0.9,
             outflow_conversion_factor=0.9,
             invest_relation_input_capacity=1,
-            invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment #ADN:why 0.5?
+            invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
         )
 
     # -------------------- SINKS (or DEMAND) --------------------
@@ -262,7 +262,6 @@ def run_simulation(df_costs, data, settings):
             )
         },
     )
-    max_allowed_shortage = 0.3
     critical_demand_el = solph.Sink(
         label="electricity_critical_demand",
         inputs={
@@ -325,11 +324,11 @@ def run_simulation(df_costs, data, settings):
     # TODO command to show the graph, might not work on windows, one could comment those lines
 
     energy_system_graph = f"case_{case}.png"
-    if ES_GRAPH is True:
-        es = ESGraphRenderer(
-            energy_system, legend=True, filepath=energy_system_graph, img_format="png"
-        )
-        es.render()
+    #if ES_GRAPH is True:
+        #es = ESGraphRenderer(
+            #energy_system, legend=True, filepath=energy_system_graph, img_format="png"
+        #)
+        #es.render()
 
     model = solph.Model(energy_system)
     model.solve(
@@ -351,8 +350,8 @@ def run_simulation(df_costs, data, settings):
     asset_results["total_flow"] = 0
     asset_results["cash_flow"] = 0
 
-    project_lifetime = 20
-    wacc = 0.06
+    project_lifetime = 25
+    wacc = 0.09
     CRF = annuity(1, project_lifetime, wacc)
 
     results_pv = solph.views.node(results=results, node="pv")
@@ -394,7 +393,7 @@ def run_simulation(df_costs, data, settings):
         # in the diesel genset.
         # The 'flow' from oemof is in kWh and must be converted to
         # kg by dividing it by the lower heating value and then to
-        # liter by dividing it by the diesel density.#ADN:??
+        # liter by dividing it by the diesel density.
         sequences_diesel_consumption = (
             results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
             / diesel_lhv
@@ -434,7 +433,7 @@ def run_simulation(df_costs, data, settings):
 
         # Define a tolerance to force 'too close' numbers to the `min_load`
         # and to 0 to be the same as the `min_load` and 0.
-        tol = 1e-8  # ADN ??
+        tol = 1e-8
         load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
         sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
         asset_results.loc["diesel_genset", "total_flow"] = sequences_diesel_genset.sum()
@@ -478,7 +477,6 @@ def run_simulation(df_costs, data, settings):
         lambda x: (x.capex_variable * x.capacity) * year_fraction,
         axis=1,
     )
-
     # Compute annual costs for each components
     asset_results["annual_costs"] = asset_results.apply(
         lambda x: (x.annuity * x.capacity) * year_fraction
@@ -496,7 +494,7 @@ def run_simulation(df_costs, data, settings):
     asset_results = asset_results[RESULTS_COLUMN_NAMES]
     asset_results.to_csv(f"results_{case}.csv")
 
-    NPV = (asset_results.annual_costs.sum() + asset_results.cash_flow.sum()) / CRF
+    NPV = ((asset_results.annual_costs.sum() + asset_results.cash_flow.sum()) / CRF) + project_planning_cost
 
     # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
@@ -541,6 +539,7 @@ def run_simulation(df_costs, data, settings):
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
     total_opex_costs = asset_results.total_opex_costs.sum() * project_lifetime
+    overall_peak_demand = sequences_demand.max() + sequences_critical_demand.max()
 
     ##########################################################################
     # Print the results in the terminal
@@ -592,14 +591,14 @@ def run_simulation(df_costs, data, settings):
     annuity_i = sum_j{first_time_investment/(1 + wacc) ** (j * asset_lifetime)}  + opex_fix_i
     
     annuity_i = sum_j{capex_variable_i * (1 + 1/ * (wacc * (1 + wacc) ** n) / (((1 + wacc) ** n - 1) * (1 + wacc) ** (j * asset_lifetime))}  + opex_fix_i
-
     Reminder: annuity is only calculated that way if NOT provided explicitly by the user
 
     """
 
     print(50 * "*")
-    print(f"Peak Demand:\t {sequences_demand.max():.0f} kW")
+    print(f"Overall Peak Demand:\t {overall_peak_demand:.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
+    print(f"NPV:\t\t {NPV:.2f} USD")
     print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD")
     print(f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD")
     print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
@@ -1062,3 +1061,4 @@ if __name__ == "__main__":
         return val
 
     demo_app.run_server(debug=True, port=settings.port)
+    #import ipdb;ipdb.set_trace()

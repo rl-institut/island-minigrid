@@ -118,7 +118,7 @@ def encode_image_file(img_path):
 
 
 def annualized_capex(
-    investment_t0, project_lifetime, asset_lifetime=None, wacc=0.05, tax=0
+    investment_t0, project_lifetime, asset_lifetime=None, wacc=0.08, tax=0
 ):
     """Return output of capex_from_investment annualised"""
     capex = capex_from_investment(
@@ -128,7 +128,7 @@ def annualized_capex(
 
 
 def capex_from_investment(
-    investment_t0, project_lifetime, asset_lifetime=None, wacc=0.05, tax=0
+    investment_t0, project_lifetime, asset_lifetime=None, wacc=0.09, tax=0
 ):
     """
 
@@ -178,13 +178,17 @@ def capex_from_investment(
                 )
 
     # # Substraction of component value at end of life with last replacement (= number_of_investments - 1)
-    # if number_of_investments * asset_lifetime > project_lifetime:
-    #     last_investment = first_time_investment / (
-    #         (1 + wacc) ** ((number_of_investments - 1) * asset_lifetime)
-    #     )
-    #     linear_depreciation_last_investment = last_investment / asset_lifetime
-    #     capex = capex - linear_depreciation_last_investment * (
-    #         number_of_investments * asset_lifetime - project_lifetime
-    #     ) / ((1 + wacc) ** (project_lifetime))
+        #if number_of_investments * asset_lifetime > project_lifetime:
+         #last_investment = first_time_investment / (
+          #   (1 + wacc) ** ((number_of_investments - 1) * asset_lifetime)
+         #)
+         #linear_depreciation_last_investment = last_investment / asset_lifetime
+         #capex = capex - linear_depreciation_last_investment * (
+         #    number_of_investments * asset_lifetime - project_lifetime
+         #) / ((1 + wacc) ** (project_lifetime))
 
     return capex
+
+
+#import ipdb;
+#ipdb.set_trace()
