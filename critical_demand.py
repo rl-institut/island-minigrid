@@ -117,8 +117,8 @@ def run_simulation(df_costs, data, settings):
     # Choose the range of the solar potential and demand
     # based on the selected simulation period.
     solar_potential = data.SolarGen.loc[start_datetime:end_datetime]
-    diesel_stability_factor = 1.2
-    hourly_demand = (data.Demand.loc[start_datetime:end_datetime]) * diesel_stability_factor
+    capacity_reserve_factor = 1.2 # a reserve factor that intentionally allow to oversize capacity of diesel genset.
+    hourly_demand = (data.Demand.loc[start_datetime:end_datetime]) * capacity_reserve_factor
     non_critical_demand = hourly_demand
     critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
     peak_solar_potential = solar_potential.max()
