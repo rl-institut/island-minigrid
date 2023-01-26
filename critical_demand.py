@@ -117,7 +117,8 @@ def run_simulation(df_costs, data, settings):
     # Choose the range of the solar potential and demand
     # based on the selected simulation period.
     solar_potential = data.SolarGen.loc[start_datetime:end_datetime]
-    hourly_demand = data.Demand.loc[start_datetime:end_datetime]
+    diesel_stability_factor = 1.2
+    hourly_demand = (data.Demand.loc[start_datetime:end_datetime]) * diesel_stability_factor
     non_critical_demand = hourly_demand
     critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
     peak_solar_potential = solar_potential.max()
@@ -173,7 +174,7 @@ def run_simulation(df_costs, data, settings):
 
     diesel_genset_efficiency = 0.33
     if case in (case_D, case_DBPV):
-        min_load = 0
+        min_load = 0.30
         max_load = 1
         diesel_genset = solph.Transformer(
             label="diesel_genset",
@@ -182,11 +183,12 @@ def run_simulation(df_costs, data, settings):
                 b_el_ac: solph.Flow(
                     nominal_value=None,
                     variable_costs=variable_cost_diesel_genset,
-                    # min=min_load,
-                    # max=max_load,
+                     min=min_load,
+                     max=max_load,
                     investment=solph.Investment(
                         ep_costs=epc.diesel_genset * n_days / n_days_in_year,
                         maximum=2 * peak_demand,
+                        #minimum= 1.2*peak_demand,
                     ),
                     # nonconvex=solph.NonConvex(),
                 )
@@ -204,7 +206,7 @@ def run_simulation(df_costs, data, settings):
                 investment=solph.Investment(
                     ep_costs=epc.rectifier * n_days / n_days_in_year
                 ),
-                variable_costs=0,
+                variable_costs=5,
             )
         },
         outputs={b_el_dc: solph.Flow()},
@@ -539,6 +541,7 @@ def run_simulation(df_costs, data, settings):
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
     total_opex_costs = asset_results.total_opex_costs.sum() * project_lifetime
+    first_investment= asset_results.first_investment.sum()
     overall_peak_demand = sequences_demand.max() + sequences_critical_demand.max()
 
     ##########################################################################
@@ -547,6 +550,7 @@ def run_simulation(df_costs, data, settings):
     scalars = dict(
         lcoe=lcoe,
         npv=NPV,
+        first_investment=first_investment,
         critical_demand_fulfilled=critical_demand_fulfilled,
         demand_fulfilled=demand_fulfilled,
         excess_rate=excess_rate,
@@ -600,7 +604,7 @@ def run_simulation(df_costs, data, settings):
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
     print(f"NPV:\t\t {NPV:.2f} USD")
     print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD")
-    print(f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD")
+    print(f"First investment :\t\t {first_investment:.2f} USD")
     print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
