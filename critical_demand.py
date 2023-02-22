@@ -75,6 +75,7 @@ RESULTS_COLUMN_NAMES = [
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
 
+#AA: the model still read these inputs below, need to be read from input excel sheet!!
 
 def other_costs():
     variable_cost_diesel_genset = 0.025  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
@@ -117,8 +118,7 @@ def run_simulation(df_costs, data, settings):
     # Choose the range of the solar potential and demand
     # based on the selected simulation period.
     solar_potential = data.SolarGen.loc[start_datetime:end_datetime]
-    capacity_reserve_factor = 1.2 # a reserve factor that intentionally allow to oversize capacity of diesel genset.
-    hourly_demand = (data.Demand.loc[start_datetime:end_datetime]) * capacity_reserve_factor
+    hourly_demand = data.Demand.loc[start_datetime:end_datetime]
     non_critical_demand = hourly_demand
     critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
     peak_solar_potential = solar_potential.max()
@@ -353,7 +353,7 @@ def run_simulation(df_costs, data, settings):
     asset_results["cash_flow"] = 0
 
     project_lifetime = 25
-    wacc = 0.09
+    wacc = 0.11
     CRF = annuity(1, project_lifetime, wacc)
 
     results_pv = solph.views.node(results=results, node="pv")
@@ -541,7 +541,7 @@ def run_simulation(df_costs, data, settings):
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
     total_opex_costs = asset_results.total_opex_costs.sum() * project_lifetime
-    first_investment= asset_results.first_investment.sum()
+    first_investment= asset_results.first_investment.sum()+  project_planning_cost
     overall_peak_demand = sequences_demand.max() + sequences_critical_demand.max()
 
     ##########################################################################
