@@ -488,10 +488,10 @@ def run_simulation(df_costs, data, settings):
 
     asset_results["total_opex_costs"] = asset_results.apply(
         lambda x: (x.opex_fix * x.capacity) * year_fraction
-        + x.total_flow * x.opex_variable,
+        + x.total_flow * x.opex_variable + x. cash_flow,
         axis=1,
     )
-
+    #import ipdb;ipdb.set_trace()
     # Save the results
     asset_results = asset_results[RESULTS_COLUMN_NAMES]
     asset_results.to_csv(f"results_{case}.csv")
