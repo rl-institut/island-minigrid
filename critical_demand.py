@@ -540,7 +540,7 @@ def run_simulation(df_costs, data, settings):
         axis=0
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
-    total_opex_costs = asset_results.total_opex_costs.sum() * project_lifetime
+    total_opex_costs = asset_results.total_opex_costs.sum()
     first_investment= asset_results.first_investment.sum()+  project_planning_cost
     overall_peak_demand = sequences_demand.max() + sequences_critical_demand.max()
 
@@ -603,7 +603,7 @@ def run_simulation(df_costs, data, settings):
     print(f"Overall Peak Demand:\t {overall_peak_demand:.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
     print(f"NPV:\t\t {NPV:.2f} USD")
-    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD")
+    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD/year")
     print(f"First investment :\t\t {first_investment:.2f} USD")
     print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
     print(f"RES:\t\t {res:.0f}%")
