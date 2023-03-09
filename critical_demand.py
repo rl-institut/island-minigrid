@@ -225,7 +225,7 @@ def run_simulation(df_costs, data, settings):
                 investment=solph.Investment(
                     ep_costs=epc.inverter * n_days / n_days_in_year
                 ),
-                variable_costs=0,
+                variable_costs=0, # has to be fits input sheet
             )
         },
         outputs={b_el_ac: solph.Flow()},
@@ -251,6 +251,8 @@ def run_simulation(df_costs, data, settings):
             invest_relation_input_capacity=1,
             invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
         )
+        C_rate_charge= 1
+        C_rate_discharge= 0.5
 
     # -------------------- SINKS (or DEMAND) --------------------
     demand_el = solph.Sink(
@@ -491,7 +493,7 @@ def run_simulation(df_costs, data, settings):
         + x.total_flow * x.opex_variable + x. cash_flow,
         axis=1,
     )
-    #import ipdb;ipdb.set_trace()
+
     # Save the results
     asset_results = asset_results[RESULTS_COLUMN_NAMES]
     asset_results.to_csv(f"results_{case}.csv")
@@ -500,6 +502,8 @@ def run_simulation(df_costs, data, settings):
 
     # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
+    Supplied_critical_demand = sequences_critical_demand.sum(axis=0)
+    Supplied_non_critical_demand = sequences_demand.sum(axis=0)
 
     # Levelized cost of electricity in the system in currency's Cent per kWh.
     lcoe = 100 * (NPV * CRF) / total_demand
@@ -609,6 +613,8 @@ def run_simulation(df_costs, data, settings):
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
     print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
+    print(f"Supplied critical demand:\t\t {Supplied_critical_demand:.1f} kWh")
+    print(f"Supplied non critical demand:\t\t {Supplied_non_critical_demand:.1f} kWh")
     print(f"Original demand:\t\t {original_demand:.1f} kWh")
     print(
         f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.0f}% of the total critical demand"
