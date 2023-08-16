@@ -52,6 +52,10 @@ try:
 except ModuleNotFoundError:
     ES_GRAPH = False
 
+if solph.__version__[:3] != "0.5":
+    raise Exception(
+        "Oemof solph version should be at least 0.5.0, please update oemof.solph with for example `pip install oemof.solph==0.5.0`"
+    )
 
 import dash
 from dash import dcc
