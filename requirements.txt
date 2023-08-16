@@ -1,4 +1,4 @@
-oemof-solph==0.4.4
+oemof-solph
 pandas
 # git+https://github.com/oemof/oemof_visio.git # this might require other dependencies on windows, you could comment it
 # graphviz # this might require other dependencies on windows, you could comment it
