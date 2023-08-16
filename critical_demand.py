@@ -139,7 +139,7 @@ def run_simulation(df_costs, data, settings):
 
     # -------------------- SOURCES --------------------
     if case in (case_D, case_DBPV):
-        diesel_source = solph.Source(
+        diesel_source = solph.components.Source(
             label="diesel_source",
             outputs={
                 b_diesel: solph.Flow(
@@ -150,7 +150,7 @@ def run_simulation(df_costs, data, settings):
 
     if case in (case_BPV, case_DBPV):
         # EPC stands for the equivalent periodical costs.
-        pv = solph.Source(
+        pv = solph.components.Source(
             label="pv",
             outputs={
                 b_el_dc: solph.Flow(
@@ -176,7 +176,7 @@ def run_simulation(df_costs, data, settings):
     if case in (case_D, case_DBPV):
         min_load = 0.30
         max_load = 1
-        diesel_genset = solph.Transformer(
+        diesel_genset = solph.components.Transformer(
             label="diesel_genset",
             inputs={b_diesel: solph.Flow()},
             outputs={
@@ -198,7 +198,7 @@ def run_simulation(df_costs, data, settings):
     #import ipdb;ipdb.set_trace()
     # The rectifier assumed to have a fixed efficiency of 98%.
     # its cost already included in the PV cost investment
-    rectifier = solph.Transformer(
+    rectifier = solph.components.Transformer(
         label="rectifier",
         inputs={
             b_el_ac: solph.Flow(
@@ -210,14 +210,14 @@ def run_simulation(df_costs, data, settings):
             )
         },
         outputs={b_el_dc: solph.Flow()},
-        conversion_factor={
+        conversion_factors={
             b_el_dc: 0.98,
         },
     )
 
     # The inverter assumed to have a fixed efficiency of 98%.
     # its cost already included in the PV cost investment
-    inverter = solph.Transformer(
+    inverter = solph.components.Transformer(
         label="inverter",
         inputs={
             b_el_dc: solph.Flow(
@@ -229,7 +229,7 @@ def run_simulation(df_costs, data, settings):
             )
         },
         outputs={b_el_ac: solph.Flow()},
-        conversion_factor={
+        conversion_factors={
             b_el_ac: 0.98,
         },
     )
@@ -237,7 +237,7 @@ def run_simulation(df_costs, data, settings):
     # -------------------- STORAGE --------------------
 
     if case in (case_BPV, case_DBPV):
-        battery = solph.GenericStorage(
+        battery = solph.components.GenericStorage(
             label="battery",
             nominal_storage_capacity=None,
             investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
@@ -255,7 +255,7 @@ def run_simulation(df_costs, data, settings):
         C_rate_discharge= 0.5
 
     # -------------------- SINKS (or DEMAND) --------------------
-    demand_el = solph.Sink(
+    demand_el = solph.components.Sink(
         label="electricity_demand",
         inputs={
             b_el_ac: solph.Flow(
@@ -266,7 +266,7 @@ def run_simulation(df_costs, data, settings):
             )
         },
     )
-    critical_demand_el = solph.Sink(
+    critical_demand_el = solph.components.Sink(
         label="electricity_critical_demand",
         inputs={
             b_el_ac: solph.Flow(
@@ -278,7 +278,7 @@ def run_simulation(df_costs, data, settings):
         },
     )
 
-    excess_el = solph.Sink(
+    excess_el = solph.components.Sink(
         label="excess_el",
         inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
     )
