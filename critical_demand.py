@@ -51,10 +51,12 @@ try:
     ES_GRAPH = True
 except ModuleNotFoundError:
     ES_GRAPH = False
+z_version = 1
 
-if solph.__version__[:3] != "0.5":
+if solph.__version__[:3] != "0.5" or (solph.__version__[:3] == "0.5" and int(solph.__version__.split(".")[2]) < z_version):
+
     raise Exception(
-        "Oemof solph version should be at least 0.5.0, please update oemof.solph with for example `pip install oemof.solph==0.5.0`"
+        f"Oemof solph version should be 0.5.{z_version} (current version {solph.__version__}) , please update oemof.solph with for example `pip install oemof.solph==0.5.{z_version}`"
     )
 
 import dash
