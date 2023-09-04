@@ -51,10 +51,12 @@ try:
     ES_GRAPH = True
 except ModuleNotFoundError:
     ES_GRAPH = False
+z_version = 1
 
-if solph.__version__[:3] != "0.5":
+if solph.__version__[:3] != "0.5" or (solph.__version__[:3] == "0.5" and int(solph.__version__.split(".")[2]) < z_version):
+
     raise Exception(
-        "Oemof solph version should be at least 0.5.0, please update oemof.solph with for example `pip install oemof.solph==0.5.0`"
+        f"Oemof solph version should be 0.5.{z_version} (current version {solph.__version__}) , please update oemof.solph with for example `pip install oemof.solph==0.5.{z_version}`"
     )
 
 import dash
@@ -159,7 +161,7 @@ def run_simulation(df_costs, data, settings):
             outputs={
                 b_el_dc: solph.Flow(
                     fix=solar_potential / peak_solar_potential,
-                    investment=solph.Investment(
+                    nominal_value=solph.Investment(
                         ep_costs=epc.pv
                         * n_days
                         / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
@@ -180,16 +182,15 @@ def run_simulation(df_costs, data, settings):
     if case in (case_D, case_DBPV):
         min_load = 0.30
         max_load = 1
-        diesel_genset = solph.components.Transformer(
+        diesel_genset = solph.components.Converter(
             label="diesel_genset",
             inputs={b_diesel: solph.Flow()},
             outputs={
                 b_el_ac: solph.Flow(
-                    nominal_value=None,
                     variable_costs=variable_cost_diesel_genset,
                      min=min_load,
                      max=max_load,
-                    investment=solph.Investment(
+                    nominal_value=solph.Investment(
                         ep_costs=epc.diesel_genset * n_days / n_days_in_year,
                         maximum=2 * peak_demand,
                         #minimum= 1.2*peak_demand,
@@ -202,12 +203,11 @@ def run_simulation(df_costs, data, settings):
     #import ipdb;ipdb.set_trace()
     # The rectifier assumed to have a fixed efficiency of 98%.
     # its cost already included in the PV cost investment
-    rectifier = solph.components.Transformer(
+    rectifier = solph.components.Converter(
         label="rectifier",
         inputs={
             b_el_ac: solph.Flow(
-                # nominal_value=None,
-                investment=solph.Investment(
+                nominal_value=solph.Investment(
                     ep_costs=epc.rectifier * n_days / n_days_in_year
                 ),
                 variable_costs=5,
@@ -221,12 +221,11 @@ def run_simulation(df_costs, data, settings):
 
     # The inverter assumed to have a fixed efficiency of 98%.
     # its cost already included in the PV cost investment
-    inverter = solph.components.Transformer(
+    inverter = solph.components.Converter(
         label="inverter",
         inputs={
             b_el_dc: solph.Flow(
-                # nominal_value=None,
-                investment=solph.Investment(
+                nominal_value=solph.Investment(
                     ep_costs=epc.inverter * n_days / n_days_in_year
                 ),
                 variable_costs=0, # has to be fits input sheet
@@ -243,10 +242,9 @@ def run_simulation(df_costs, data, settings):
     if case in (case_BPV, case_DBPV):
         battery = solph.components.GenericStorage(
             label="battery",
-            nominal_storage_capacity=None,
             investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
             inputs={b_el_dc: solph.Flow(variable_costs=0.01)},# AA: might be replaced by user input's opex_fixed
-            outputs={b_el_dc: solph.Flow(investment=solph.Investment(ep_costs=0))},
+            outputs={b_el_dc: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
             min_storage_level=settings.storage_soc_min,
             max_storage_level=settings.storage_soc_max,
             loss_rate=0.01,
