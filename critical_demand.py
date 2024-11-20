@@ -181,7 +181,7 @@ def run_simulation(df_costs, data, settings):
 
     diesel_genset_efficiency = 0.33
     if case in (case_D, case_DBPV):
-        min_load = 0.30
+        min_load = 0.20
         max_load = 1
         diesel_genset = solph.components.Converter(
             label="diesel_genset",
@@ -283,7 +283,7 @@ def run_simulation(df_costs, data, settings):
 
     excess_el = solph.components.Sink(
         label="excess_el",
-        inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
+        inputs={b_el_dc: solph.Flow(variable_costs=0.01)},
     )
 
     energy_system.add(
