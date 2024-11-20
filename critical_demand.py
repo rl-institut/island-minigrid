@@ -1064,5 +1064,4 @@ if __name__ == "__main__":
     def change_ts_value(val):
         return val
 
-    demo_app.run_server(debug=True, port=settings.port)
-    #import ipdb;ipdb.set_trace()
+    demo_app.run_server(debug=True, port=settings.port, use_reloader=False)
