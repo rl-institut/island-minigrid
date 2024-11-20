@@ -517,8 +517,7 @@ def run_simulation(df_costs, data, settings):
         # The share of renewable energy source used to cover the demand.
         res = (
             100
-            * sequences_pv.sum(axis=0)
-            / (sequences_diesel_genset.sum(axis=0) + sequences_pv.sum(axis=0))
+            * (total_demand - sequences_diesel_genset.sum(axis=0)) / total_demand
         )
     elif case == case_D:
         res = 0
