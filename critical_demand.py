@@ -3,8 +3,7 @@
 """
 General description
 -------------------
-This example illustrates the combination of Investment and NonConvex options
-applied to a diesel generator in a hybrid mini-grid system.
+This example illustrates the concept of critical vs non-critical demand within a hybrid mini-grid system.
 
 There are the following components:
 
@@ -133,6 +132,10 @@ def run_simulation(df_costs, data, settings):
     variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv = other_costs()
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
+
+    ########################################
+    # ------- Set up energy system ------- #
+    ########################################
 
     energy_system = solph.EnergySystem(timeindex=date_time_index)
 
@@ -295,7 +298,7 @@ def run_simulation(df_costs, data, settings):
         excess_el,
     )
 
-    # Add all objects to the energy system.
+    # Add extra objects to the energy system.
     if case == case_BPV:
         energy_system.add(
             pv,
@@ -318,8 +321,9 @@ def run_simulation(df_costs, data, settings):
             diesel_genset,
             b_diesel,
         )
+
     ##########################################################################
-    # Optimise the energy system
+    # ------------------ Optimise the energy system ------------------------ #
     ##########################################################################
 
     # The higher the MipGap or ratioGap, the faster the solver would converge,
@@ -349,6 +353,7 @@ def run_simulation(df_costs, data, settings):
     print("\n" + 50 * "*")
     print(f"Simulation Time:\t {end_simulation_time-start_simulation_time:.2f} s")
 
+    ### ---------- RESULTS PROCESSING ---------- ###
     results = solph.processing.results(model)
 
     asset_results = df_costs.copy()
@@ -553,6 +558,7 @@ def run_simulation(df_costs, data, settings):
     ##########################################################################
     # Print the results in the terminal
     ##########################################################################
+
     scalars = dict(
         lcoe=lcoe,
         npv=NPV,
@@ -633,6 +639,10 @@ def run_simulation(df_costs, data, settings):
     print(f"Inverter:\t {capacity_inverter:.1f} kW")
     print(f"Rectifier:\t {capacity_rectifier:.1f} kW")
     print(50 * "*")
+
+    ##############################################
+    # ------------ Set up DashApp -------------- #
+    ##############################################
 
     result_div = html.Div(
         children=[
@@ -887,6 +897,8 @@ if __name__ == "__main__":
     options = dict(
         # external_stylesheets=external_stylesheets
     )
+
+    ######### --------- Dash app layout ---------- ###
 
     demo_app = dash.Dash(__name__, **options)
 
