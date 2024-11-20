@@ -973,7 +973,7 @@ if __name__ == "__main__":
         Input(component_id="ts_slice_select", component_property="value"),
     )
     def update_figures(ts):
-        ts = int(ts)
+        ts = int(ts) if ts is not None else 0
         # see if case changes, otherwise do not rerun this
         date_time_index = energy_system.timeindex
 
