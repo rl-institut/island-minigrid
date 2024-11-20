@@ -807,52 +807,8 @@ def sankey(energy_system, results, ts=None):
     fig.update_layout(title_text="Basic Sankey Diagram", font_size=10)
     return fig.to_dict()
 
-
-if __name__ == "__main__":
-    # Import data.
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-
-    parser = argparse.ArgumentParser(
-        prog="python critical_demand.py",
-        description="Build a simple model with non critical demand",
-    )
-    parser.add_argument(
-        "-i",
-        dest="input_file",
-        nargs="?",
-        type=str,
-        help="path to the input file",
-        default=os.path.join(current_directory, "input_case.xlsx"),
-    )
-
-    args = vars(parser.parse_args())
-
-    filename = args.get("input_file")
-
-    if not os.path.exists(filename):
-        raise FileNotFoundError(
-            f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
-        )
-    df_costs, data, settings, _ = read_input_file(filename)
-
-    (
-        results,
-        asset_results,
-        energy_system,
-        result_div,
-        system_results,
-        date_time_index,
-        non_critical_demand,
-        critical_demand,
-    ) = run_simulation(df_costs, data, settings)
-    case = settings.case
-    energy_system_graph = encode_image_file(f"case_{case}.png")
-
+def plot_bus_flows(busses, results):
     bus_figures = []
-    if case == case_D:
-        busses = ["electricity_ac"]
-    else:
-        busses = ["electricity_ac", "electricity_dc", "battery"]
 
     for bus in busses:
         if bus != "battery":
@@ -883,11 +839,38 @@ if __name__ == "__main__":
             )
 
         bus_figures.append(fig)
+    return bus_figures
 
-    # only in case of battery --> WHY DOESN#T it WORK???
-    if case != case_D:
-        bus = "battery"
 
+if __name__ == "__main__":
+    filename = "input_case.xlsx"
+
+    if not os.path.exists(filename):
+        raise FileNotFoundError(
+            f"The file was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+        )
+    df_costs, data, settings, _ = read_input_file(filename)
+
+    (
+        results,
+        asset_results,
+        energy_system,
+        result_div,
+        system_results,
+        date_time_index,
+        non_critical_demand,
+        critical_demand,
+    ) = run_simulation(df_costs, data, settings)
+    case = settings.case
+    energy_system_graph = encode_image_file(f"case_{case}.png")
+
+    if case == case_D:
+        busses = ["electricity_ac"]
+    else:
+        busses = ["electricity_ac", "electricity_dc", "battery"]
+
+    # plot bus flows
+    bus_figures = plot_bus_flows(busses, results)
 
     # loading external resources
     external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
