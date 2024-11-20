@@ -507,8 +507,8 @@ def run_simulation(df_costs, data, settings):
 
     # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
-    Supplied_critical_demand = sequences_critical_demand.sum(axis=0)
-    Supplied_non_critical_demand = sequences_demand.sum(axis=0)
+    supplied_critical_demand = sequences_critical_demand.sum(axis=0)
+    supplied_non_critical_demand = sequences_demand.sum(axis=0)
 
     # Levelized cost of electricity in the system in currency's Cent per kWh.
     lcoe = 100 * (NPV * CRF) / total_demand
@@ -612,14 +612,14 @@ def run_simulation(df_costs, data, settings):
     print(f"Overall Peak Demand:\t {overall_peak_demand:.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
     print(f"NPV:\t\t {NPV:.2f} USD")
-    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD/year")
+    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD/{settings.n_days} days")
     print(f"First investment :\t\t {first_investment:.2f} USD")
-    print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
+    print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/{settings.n_days} days")
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
     print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
-    print(f"Supplied critical demand:\t\t {Supplied_critical_demand:.1f} kWh")
-    print(f"Supplied non critical demand:\t\t {Supplied_non_critical_demand:.1f} kWh")
+    print(f"Supplied critical demand:\t\t {supplied_critical_demand:.1f} kWh")
+    print(f"Supplied non critical demand:\t\t {supplied_non_critical_demand:.1f} kWh")
     print(f"Original demand:\t\t {original_demand:.1f} kWh")
     print(
         f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.0f}% of the total critical demand"
@@ -645,10 +645,10 @@ def run_simulation(df_costs, data, settings):
         children=[
             html.Div(
                 children=[
-                    html.P(f"Peak Demand:\t {sequences_demand.max():.1f} kW"),
+                    html.P(f"Overall peak Demand:\t {overall_peak_demand:.1f} kW"),
                     html.P(f"LCOE:\t\t {lcoe:.2f} cent/kWh", title=help_lcoe),
                     html.P(f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD", title="It is the sum of the product of optimized capacity and annualized costs of each asset"),
-                    html.P(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year"),
+                    html.P(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/{settings.n_days} days"),
                     html.P(f"RES:\t\t {res:.0f}%"),
                     html.P(f"Excess:\t\t {excess_rate:.1f}% of the total production"),
                     html.P(
