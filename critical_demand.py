@@ -82,12 +82,8 @@ RESULTS_COLUMN_NAMES = [
 
 #AA: the model still read these inputs below, need to be read from input excel sheet!!
 
-def other_costs():
-    variable_cost_diesel_genset = 0.025  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
-    diesel_cost = 1  # currency/l
-    diesel_density = 0.846  # kg/l
-    diesel_lhv = 11.83  # kWh/kg
-    return variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv
+def diesel_cost(vol_cost, dens, energy_dens):
+    return vol_cost / dens / energy_dens
 
 
 case_D = "D"
@@ -107,6 +103,9 @@ def run_simulation(df_costs, data, settings):
     demand_reduction_factor = settings.maximum_demand_reduction
 
     epc = df_costs["annuity"]
+    opex_var = df_costs["opex_variable"].fillna(0)
+    diesel_lhv = df_costs["energy_density"].diesel_genset
+    diesel_density = df_costs["density"].diesel_genset
 
     # Change the index of data to be able to select data based on the time range.
     data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
@@ -129,7 +128,6 @@ def run_simulation(df_costs, data, settings):
     peak_solar_potential = solar_potential.max()
     peak_demand = hourly_demand.max()
 
-    variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv = other_costs()
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
 
@@ -152,7 +150,7 @@ def run_simulation(df_costs, data, settings):
             label="diesel_source",
             outputs={
                 b_diesel: solph.Flow(
-                    variable_costs=diesel_cost / diesel_density / diesel_lhv
+                    variable_costs=opex_var.diesel_genset
                 )
             },
         )
@@ -169,7 +167,7 @@ def run_simulation(df_costs, data, settings):
                         * n_days
                         / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
                     ),
-                    variable_costs=0,
+                    variable_costs=opex_var.pv,
                 )
             },
         )
@@ -190,7 +188,7 @@ def run_simulation(df_costs, data, settings):
             inputs={b_diesel: solph.Flow()},
             outputs={
                 b_el_ac: solph.Flow(
-                    variable_costs=variable_cost_diesel_genset,
+                    variable_costs=opex_var.diesel_genset,
                      min=min_load,
                      max=max_load,
                     nominal_value=solph.Investment(
@@ -213,7 +211,7 @@ def run_simulation(df_costs, data, settings):
                 nominal_value=solph.Investment(
                     ep_costs=epc.rectifier * n_days / n_days_in_year
                 ),
-                variable_costs=5,
+                variable_costs=opex_var.rectifier,
             )
         },
         outputs={b_el_dc: solph.Flow()},
@@ -231,7 +229,7 @@ def run_simulation(df_costs, data, settings):
                 nominal_value=solph.Investment(
                     ep_costs=epc.inverter * n_days / n_days_in_year
                 ),
-                variable_costs=0, # has to be fits input sheet
+                variable_costs=opex_var.inverter, # has to be fits input sheet
             )
         },
         outputs={b_el_ac: solph.Flow()},
@@ -362,7 +360,7 @@ def run_simulation(df_costs, data, settings):
     asset_results["cash_flow"] = 0
 
     project_lifetime = 25
-    wacc = 0.11
+    wacc = settings.wacc
     CRF = annuity(1, project_lifetime, wacc)
 
     results_pv = solph.views.node(results=results, node="pv")
@@ -412,7 +410,7 @@ def run_simulation(df_costs, data, settings):
         )
 
         asset_results.loc["diesel_genset", "cash_flow"] = (
-            diesel_cost * sequences_diesel_consumption.sum()
+            opex_var.diesel_genset * sequences_diesel_consumption.sum()
         )
 
         # Hourly profiles for electricity production in the diesel genset.
