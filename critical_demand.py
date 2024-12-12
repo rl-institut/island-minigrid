@@ -144,6 +144,7 @@ def run_simulation(df_costs, data, settings):
     # Create electricity and diesel buses.
     b_el_ac = solph.Bus(label="electricity_ac")
     b_el_dc = solph.Bus(label="electricity_dc")
+    b_h2 = solph.Bus(label="hydrogen")
     if case in (case_D, case_DBPV):
         b_diesel = solph.Bus(label="diesel")
 
@@ -200,6 +201,27 @@ def run_simulation(df_costs, data, settings):
             },
             conversion_factors={b_el_ac: diesel_genset_efficiency},
         )
+    #if "H" in case:
+    # TODO change those values
+    h2_genset_efficiency = 0.99
+    h2_genset = solph.components.Converter(
+        label="h2_genset",
+        inputs={b_h2: solph.Flow()},
+        outputs={
+            b_el_ac: solph.Flow(
+                variable_costs=variable_cost_diesel_genset,
+                min=min_load,
+                max=max_load,
+                nominal_value=solph.Investment(
+                    ep_costs=epc.diesel_genset * n_days / n_days_in_year,
+                    maximum=2 * peak_demand,
+                    # minimum= 1.2*peak_demand,
+                ),
+                # nonconvex=solph.NonConvex(),
+            )
+        },
+        conversion_factors={b_el_ac: h2_genset_efficiency},
+    )
 
     # The rectifier assumed to have a fixed efficiency of 98%.
     # its cost already included in the PV cost investment
@@ -237,6 +259,24 @@ def run_simulation(df_costs, data, settings):
         },
     )
 
+    # TODO define this in excel file
+    electrolyser_epc = 100
+    electrolyser = solph.components.Converter(
+        label="electrolyser",
+        inputs={
+            b_el_dc: solph.Flow(
+                nominal_value=solph.Investment(
+                    ep_costs=electrolyser_epc * n_days / n_days_in_year
+                ),
+                variable_costs=0, # has to be fits input sheet
+            )
+        },
+        outputs={b_h2: solph.Flow()},
+        conversion_factors={
+            b_el_ac: 0.98,
+        },
+    )
+
     # -------------------- STORAGE --------------------
 
     if case in (case_BPV, case_DBPV):
@@ -255,6 +295,22 @@ def run_simulation(df_costs, data, settings):
             invest_relation_input_capacity=1,
             invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
         )
+
+    # if "H" in case:
+    # TODO change values
+    h2_storage = solph.components.GenericStorage(
+        label="h2_storage",
+        investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
+        inputs={b_h2: solph.Flow(variable_costs=0.01)},# AA: might be replaced by user input's opex_fixed
+        outputs={b_h2: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
+        min_storage_level=settings.storage_soc_min,
+        max_storage_level=settings.storage_soc_max,
+        loss_rate=0.01,
+        inflow_conversion_factor=0.9,
+        outflow_conversion_factor=0.9,
+        invest_relation_input_capacity=1,
+        invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+    )
 
     # -------------------- SINKS (or DEMAND) --------------------
     demand_el = solph.components.Sink(
@@ -293,6 +349,14 @@ def run_simulation(df_costs, data, settings):
         demand_el,
         critical_demand_el,
         excess_el,
+    )
+
+    # TODO only add if the scenario has it
+    energy_system.add(
+        b_h2,
+        electrolyser,
+        h2_genset,
+        h2_storage
     )
 
     # Add extra objects to the energy system.
