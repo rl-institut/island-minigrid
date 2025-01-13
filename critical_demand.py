@@ -109,6 +109,8 @@ def run_simulation(df_costs, data, settings):
     opex_var = df_costs["opex_variable"].fillna(0)
     diesel_lhv = df_costs["energy_density"].diesel_genset
     diesel_density = df_costs["density"].diesel_genset
+    soc_min = df_costs["soc_min"]
+    soc_max = df_costs["soc_max"]
 
     # Change the index of data to be able to select data based on the time range.
     data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
@@ -205,15 +207,15 @@ def run_simulation(df_costs, data, settings):
     # TODO change those values
     h2_genset_efficiency = 0.99
     h2_genset = solph.components.Converter(
-        label="h2_genset",
+        label="fuel_cell",
         inputs={b_h2: solph.Flow()},
         outputs={
             b_el_ac: solph.Flow(
-                variable_costs=variable_cost_diesel_genset,
+                variable_costs=opex_var.fuel_cell,
                 min=min_load,
                 max=max_load,
                 nominal_value=solph.Investment(
-                    ep_costs=epc.diesel_genset * n_days / n_days_in_year,
+                    ep_costs=epc.fuel_cell * n_days / n_days_in_year,
                     maximum=2 * peak_demand,
                     # minimum= 1.2*peak_demand,
                 ),
@@ -259,16 +261,14 @@ def run_simulation(df_costs, data, settings):
         },
     )
 
-    # TODO define this in excel file
-    electrolyser_epc = 100
     electrolyser = solph.components.Converter(
         label="electrolyser",
         inputs={
             b_el_dc: solph.Flow(
                 nominal_value=solph.Investment(
-                    ep_costs=electrolyser_epc * n_days / n_days_in_year
+                    ep_costs=epc.electrolyser * n_days / n_days_in_year
                 ),
-                variable_costs=0, # has to be fits input sheet
+                variable_costs=opex_var.electrolyser, # has to be fits input sheet
             )
         },
         outputs={b_h2: solph.Flow()},
@@ -937,6 +937,8 @@ if __name__ == "__main__":
     ) = run_simulation(df_costs, data, settings)
     case = settings.case
     energy_system_graph = encode_image_file(f"case_{case}.png")
+    soc_min = df_costs["soc_min"]
+    soc_max = df_costs["soc_max"]
 
     if case == case_D:
         busses = ["electricity_ac"]
@@ -1115,14 +1117,14 @@ if __name__ == "__main__":
                 fig.add_trace(
                     go.Scatter(
                         x=soc_battery.index,
-                        y=np.ones(len(soc_battery.index)) * settings.storage_soc_min,
+                        y=np.ones(len(soc_battery.index)) * soc_min.battery,
                         name="min soc battery",
                     )
                 )
                 fig.add_trace(
                     go.Scatter(
                         x=soc_battery.index,
-                        y=np.ones(len(soc_battery.index)) * settings.storage_soc_max,
+                        y=np.ones(len(soc_battery.index)) * soc_max.battery,
                         name="max soc battery",
                     )
                 )
