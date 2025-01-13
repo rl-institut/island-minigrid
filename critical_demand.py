@@ -381,23 +381,11 @@ def run_simulation(df_costs, data, settings):
     wacc = settings.wacc
     CRF = annuity(1, project_lifetime, wacc)
 
-    results_pv = solph.views.node(results=results, node="pv")
-    if case in (case_D, case_DBPV):
-        results_diesel_source = solph.views.node(results=results, node="diesel_source")
-        results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
-
-    results_inverter = solph.views.node(results=results, node="inverter")
-    results_rectifier = solph.views.node(results=results, node="rectifier")
-    if case in (case_BPV, case_DBPV):
-        results_battery = solph.views.node(results=results, node="battery")
-
     results_demand_el = solph.views.node(results=results, node="electricity_demand")
     results_critical_demand_el = solph.views.node(
         results=results, node="electricity_critical_demand"
     )
-    results_excess_el = solph.views.node(results=results, node="excess_el")
 
-    # -------------------- SEQUENCES (DYNAMIC) --------------------
     # Hourly demand profile.
     sequences_demand = results_demand_el["sequences"][
         (("electricity_ac", "electricity_demand"), "flow")
@@ -407,20 +395,9 @@ def run_simulation(df_costs, data, settings):
         (("electricity_ac", "electricity_critical_demand"), "flow")
     ]
 
-    if case in (case_BPV, case_DBPV):
-        # Hourly profiles for solar potential and pv production.
-        sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
-        asset_results.loc["pv", "total_flow"] = sequences_pv.sum()
-
-        # TODO find what we would like to have here
-        asset_results.loc["battery", "total_flow"] = 0
-
-    if case in (case_D, case_DBPV):
-        # Hourly profiles for diesel consumption and electricity production
-        # in the diesel genset.
-        # The 'flow' from oemof is in kWh and must be converted to
-        # kg by dividing it by the lower heating value and then to
-        # liter by dividing it by the diesel density.
+    if "D" in case:
+        results_diesel_source = solph.views.node(results=results, node="diesel_source")
+        results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
         sequences_diesel_consumption = (
             results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
             / diesel_lhv
@@ -435,24 +412,6 @@ def run_simulation(df_costs, data, settings):
         sequences_diesel_genset = results_diesel_genset["sequences"][
             (("diesel_genset", "electricity_ac"), "flow")
         ]
-
-    # Hourly profiles for excess ac and dc electricity production.
-    sequences_excess = results_excess_el["sequences"][
-        (("electricity_dc", "excess_el"), "flow")
-    ]
-
-    sequences_inverter = results_inverter["sequences"][
-        (("inverter", "electricity_ac"), "flow")
-    ]
-
-    sequences_rectifier = results_rectifier["sequences"][
-        (("rectifier", "electricity_dc"), "flow")
-    ]
-
-    asset_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
-    asset_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
-
-    if case in (case_D, case_DBPV):
         # -------------------- SCALARS (STATIC) --------------------
         capacity_diesel_genset = results_diesel_genset["scalars"][
             (("diesel_genset", "electricity_ac"), "invest")
@@ -467,35 +426,82 @@ def run_simulation(df_costs, data, settings):
     else:
         capacity_diesel_genset = 0
 
-    if case in (case_BPV, case_DBPV):
-        capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
+    if "PV" in case:
+        results_pv = solph.views.node(results=results, node="pv")
+        results_inverter = solph.views.node(results=results, node="inverter")
+        results_rectifier = solph.views.node(results=results, node="rectifier")
+        results_excess_el = solph.views.node(results=results, node="excess_el")
+        # Hourly profiles for solar potential and pv production.
+        sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
+        asset_results.loc["pv", "total_flow"] = sequences_pv.sum()
 
-        capacity_battery = results_battery["scalars"][
-            (("electricity_dc", "battery"), "invest")
+        sequences_excess = results_excess_el["sequences"][
+            (("electricity_dc", "excess_el"), "flow")
         ]
-    else:
-        capacity_pv = 0
-        capacity_battery = 0
 
-    if "scalars" in results_inverter:
+        sequences_inverter = results_inverter["sequences"][
+            (("inverter", "electricity_ac"), "flow")
+        ]
+
+        sequences_rectifier = results_rectifier["sequences"][
+            (("rectifier", "electricity_dc"), "flow")
+        ]
+
+        asset_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
+        asset_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
+        capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
         capacity_inverter = results_inverter["scalars"][
             (("electricity_dc", "inverter"), "invest")
         ]
-    else:
-        capacity_inverter = 0
-
-    if "scalars" in results_rectifier:
         capacity_rectifier = results_rectifier["scalars"][
             (("electricity_ac", "rectifier"), "invest")
         ]
+
+
+        if "B" in case:
+            results_battery = solph.views.node(results=results, node="battery")
+            capacity_battery = results_battery["scalars"][
+                (("electricity_dc", "battery"), "invest")
+            ]
+        else:
+            capacity_battery = 0
+
+        if "H" in case:
+            results_electrolyser = solph.views.node(results=results, node="electrolyser")
+            results_fuel_cell = solph.views.node(results=results, node="fuel_cell")
+            results_h2_storage = solph.views.node(results=results, node="h2_storage")
+            capacity_electrolyser = results_electrolyser["scalars"][
+                (("electricity_dc", "electrolyser"), "invest")
+            ]
+            capacity_fuel_cell = results_fuel_cell["scalars"][
+                (("fuel_cell", "electricity_ac"), "invest")
+            ]
+            capacity_h2_storage = results_h2_storage["scalars"][
+                (("hydrogen", "h2_storage"), "invest")
+            ]
+        else:
+            capacity_fuel_cell = 0
+            capacity_electrolyser = 0
+            capacity_h2_storage = 0
+
     else:
+        capacity_pv = 0
         capacity_rectifier = 0
+        capacity_inverter = 0
+        capacity_battery = 0
+        capacity_fuel_cell = 0
+        capacity_electrolyser = 0
+        capacity_h2_storage = 0
+
 
     asset_results.loc["diesel_genset", "capacity"] = capacity_diesel_genset
     asset_results.loc["pv", "capacity"] = capacity_pv
     asset_results.loc["battery", "capacity"] = capacity_battery
     asset_results.loc["inverter", "capacity"] = capacity_inverter
     asset_results.loc["rectifier", "capacity"] = capacity_rectifier
+    asset_results.loc["electrolyser", "capacity"] = capacity_electrolyser
+    asset_results.loc["fuel_cell", "capacity"] = capacity_fuel_cell
+    asset_results.loc["h2_storage", "capacity"] = capacity_h2_storage
 
     # Scaling annuity to timeframe
     year_fraction = n_days / n_days_in_year
@@ -534,13 +540,10 @@ def run_simulation(df_costs, data, settings):
     # Levelized cost of electricity in the system in currency's Cent per kWh.
     lcoe = 100 * (NPV * CRF) / total_demand
 
-    if case == case_DBPV:
-        # The share of renewable energy source used to cover the demand.
-        res = 100 * (total_demand - sequences_diesel_genset.sum(axis=0)) / total_demand
-    elif case == case_D:
+    if case == "D":
         res = 0
     else:
-        res = 100
+        res = 100 * (total_demand - sequences_diesel_genset.sum(axis=0)) / total_demand
 
     # The amount of excess electricity (which must probably be dumped).
     excess_rate = (
@@ -881,7 +884,6 @@ if __name__ == "__main__":
             f"The file was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
         )
     df_costs, data, settings, _ = read_input_file(filename)
-
     (
         results,
         asset_results,
@@ -897,7 +899,7 @@ if __name__ == "__main__":
     soc_min = df_costs["soc_min"]
     soc_max = df_costs["soc_max"]
 
-    if case == case_D:
+    if case == "D":
         busses = ["electricity_ac"]
     else:
         busses = ["electricity_ac", "electricity_dc", "battery"]
