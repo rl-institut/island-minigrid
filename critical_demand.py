@@ -87,10 +87,6 @@ RESULTS_COLUMN_NAMES = [
 def diesel_cost(vol_cost, dens, energy_dens):
     return vol_cost / dens / energy_dens
 
-
-case_D = "D"
-case_DBPV = "DBPV"
-case_BPV = "BPV"
 project_planning_cost = 5000
 
 
@@ -136,189 +132,23 @@ def run_simulation(df_costs, data, settings):
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
 
-    ########################################
-    # ------- Set up energy system ------- #
-    ########################################
+    # -------------- Set up energy system ------------ #
+    # First the diesel sinks will be added, then the
+    # diesel and RE components if defined in the input sheet
 
     energy_system = solph.EnergySystem(timeindex=date_time_index)
 
     # -------------------- BUSES --------------------
     # Create electricity and diesel buses.
     b_el_ac = solph.Bus(label="electricity_ac")
-    b_el_dc = solph.Bus(label="electricity_dc")
-    b_h2 = solph.Bus(label="hydrogen")
-    if case in (case_D, case_DBPV):
-        b_diesel = solph.Bus(label="diesel")
 
-    # -------------------- SOURCES --------------------
-    if case in (case_D, case_DBPV):
-        diesel_source = solph.components.Source(
-            label="diesel_source",
-            outputs={b_diesel: solph.Flow(variable_costs=opex_var.diesel_genset)},
-        )
-
-    if case in (case_BPV, case_DBPV):
-        # EPC stands for the equivalent periodical costs.
-        pv = solph.components.Source(
-            label="pv",
-            outputs={
-                b_el_dc: solph.Flow(
-                    fix=solar_potential / peak_solar_potential,
-                    nominal_value=solph.Investment(
-                        ep_costs=epc.pv
-                        * n_days
-                        / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
-                    ),
-                    variable_costs=opex_var.pv,
-                )
-            },
-        )
-
-    # -------------------- TRANSFORMERS --------------------
-    # The diesel genset assumed to have a fixed efficiency of 33%.
-
-    # The output power of the diesel genset can only vary between
-    # the given minimum and maximum loads, which represent the fraction
-    # of the optimal capacity obtained from the optimization.
-
-    diesel_genset_efficiency = 0.33
-    if case in (case_D, case_DBPV):
-        min_load = 0.20
-        max_load = 1
-        diesel_genset = solph.components.Converter(
-            label="diesel_genset",
-            inputs={b_diesel: solph.Flow()},
-            outputs={
-                b_el_ac: solph.Flow(
-                    variable_costs=opex_var.diesel_genset,
-                    min=min_load,
-                    max=max_load,
-                    nominal_value=solph.Investment(
-                        ep_costs=epc.diesel_genset * n_days / n_days_in_year,
-                        maximum=2 * peak_demand,
-                        # minimum= 1.2*peak_demand,
-                    ),
-                    # nonconvex=solph.NonConvex(),
-                )
-            },
-            conversion_factors={b_el_ac: diesel_genset_efficiency},
-        )
-    #if "H" in case:
-    # TODO change those values
-    h2_genset_efficiency = 0.99
-    h2_genset = solph.components.Converter(
-        label="fuel_cell",
-        inputs={b_h2: solph.Flow()},
-        outputs={
-            b_el_ac: solph.Flow(
-                variable_costs=opex_var.fuel_cell,
-                min=min_load,
-                max=max_load,
-                nominal_value=solph.Investment(
-                    ep_costs=epc.fuel_cell * n_days / n_days_in_year,
-                    maximum=2 * peak_demand,
-                    # minimum= 1.2*peak_demand,
-                ),
-                # nonconvex=solph.NonConvex(),
-            )
-        },
-        conversion_factors={b_el_ac: h2_genset_efficiency},
-    )
-
-    # The rectifier assumed to have a fixed efficiency of 98%.
-    # its cost already included in the PV cost investment
-    rectifier = solph.components.Converter(
-        label="rectifier",
-        inputs={
-            b_el_ac: solph.Flow(
-                nominal_value=solph.Investment(
-                    ep_costs=epc.rectifier * n_days / n_days_in_year
-                ),
-                variable_costs=opex_var.rectifier,
-            )
-        },
-        outputs={b_el_dc: solph.Flow()},
-        conversion_factors={
-            b_el_dc: 0.98,
-        },
-    )
-
-    # The inverter assumed to have a fixed efficiency of 98%.
-    # its cost already included in the PV cost investment
-    inverter = solph.components.Converter(
-        label="inverter",
-        inputs={
-            b_el_dc: solph.Flow(
-                nominal_value=solph.Investment(
-                    ep_costs=epc.inverter * n_days / n_days_in_year
-                ),
-                variable_costs=opex_var.inverter,  # has to be fits input sheet
-            )
-        },
-        outputs={b_el_ac: solph.Flow()},
-        conversion_factors={
-            b_el_ac: 0.98,
-        },
-    )
-
-    electrolyser = solph.components.Converter(
-        label="electrolyser",
-        inputs={
-            b_el_dc: solph.Flow(
-                nominal_value=solph.Investment(
-                    ep_costs=epc.electrolyser * n_days / n_days_in_year
-                ),
-                variable_costs=opex_var.electrolyser, # has to be fits input sheet
-            )
-        },
-        outputs={b_h2: solph.Flow()},
-        conversion_factors={
-            b_el_ac: 0.98,
-        },
-    )
-
-    # -------------------- STORAGE --------------------
-
-    if case in (case_BPV, case_DBPV):
-        battery = solph.components.GenericStorage(
-            label="battery",
-            investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
-            inputs={
-                b_el_dc: solph.Flow(variable_costs=0.01)
-            },
-            outputs={b_el_dc: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
-            min_storage_level=settings.storage_soc_min,
-            max_storage_level=settings.storage_soc_max,
-            loss_rate=0.01,
-            inflow_conversion_factor=0.9,
-            outflow_conversion_factor=0.9,
-            invest_relation_input_capacity=1,
-            invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
-        )
-
-    # if "H" in case:
-    # TODO change values
-    h2_storage = solph.components.GenericStorage(
-        label="h2_storage",
-        investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
-        inputs={b_h2: solph.Flow(variable_costs=0.01)},# AA: might be replaced by user input's opex_fixed
-        outputs={b_h2: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
-        min_storage_level=settings.storage_soc_min,
-        max_storage_level=settings.storage_soc_max,
-        loss_rate=0.01,
-        inflow_conversion_factor=0.9,
-        outflow_conversion_factor=0.9,
-        invest_relation_input_capacity=1,
-        invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
-    )
-
-    # -------------------- SINKS (or DEMAND) --------------------
+    # -------------------- SINKS (or DEMAND) --------
     demand_el = solph.components.Sink(
         label="electricity_demand",
         inputs={
             b_el_ac: solph.Flow(
                 min=(1 - demand_reduction_factor)
-                * (non_critical_demand / non_critical_demand.max()),
+                    * (non_critical_demand / non_critical_demand.max()),
                 max=(non_critical_demand / non_critical_demand.max()),
                 nominal_value=non_critical_demand.max(),
             )
@@ -336,52 +166,179 @@ def run_simulation(df_costs, data, settings):
         },
     )
 
-    excess_el = solph.components.Sink(
-        label="excess_el",
-        inputs={b_el_dc: solph.Flow(variable_costs=0.01)},
-    )
+    energy_system.add(b_el_ac, demand_el, critical_demand_el)
 
-    energy_system.add(
-        b_el_dc,
-        b_el_ac,
-        inverter,
-        rectifier,
-        demand_el,
-        critical_demand_el,
-        excess_el,
-    )
-
-    # TODO only add if the scenario has it
-    energy_system.add(
-        b_h2,
-        electrolyser,
-        h2_genset,
-        h2_storage
-    )
-
-    # Add extra objects to the energy system.
-    if case == case_BPV:
-        energy_system.add(
-            pv,
-            battery,
+    # -------------------- DIESEL SYSTEM --------------
+    if "D" in case:
+        diesel_genset_efficiency = 0.33
+        min_load = 0.20
+        max_load = 1
+        b_diesel = solph.Bus(label="diesel")
+        diesel_genset = solph.components.Converter(
+            label="diesel_genset",
+            inputs={b_diesel: solph.Flow()},
+            outputs={
+                b_el_ac: solph.Flow(
+                    variable_costs=opex_var.diesel_genset,
+                    min=min_load,
+                    max=max_load,
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.diesel_genset * n_days / n_days_in_year,
+                        # maximum=2 * peak_demand,
+                        # minimum= 1.2*peak_demand,
+                    ),
+                    # nonconvex=solph.NonConvex(),
+                )
+            },
+            conversion_factors={b_el_ac: diesel_genset_efficiency},
         )
 
-    if case == case_DBPV:
-        energy_system.add(
-            pv,
-            battery,
-            diesel_source,
-            diesel_genset,
-            b_diesel,
+        diesel_source = solph.components.Source(
+            label="diesel_source",
+            outputs={b_diesel: solph.Flow(variable_costs=opex_var.diesel_genset)},
         )
 
-    # TODO set the if case
-    if case == case_D:
-        energy_system.add(
-            diesel_source,
-            diesel_genset,
-            b_diesel,
+        energy_system.add(b_diesel, diesel_genset, diesel_source)
+
+
+    # -------------------- RE COMPONENTS --------------------
+    if "PV" in case:
+        b_el_dc = solph.Bus(label="electricity_dc")
+
+        # EPC stands for the equivalent periodical costs.
+        pv = solph.components.Source(
+            label="pv",
+            outputs={
+                b_el_dc: solph.Flow(
+                    fix=solar_potential / peak_solar_potential,
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.pv
+                                 * n_days
+                                 / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
+                    ),
+                    variable_costs=opex_var.pv,
+                )
+            },
         )
+        # The rectifier assumed to have a fixed efficiency of 98%.
+        # its cost already included in the PV cost investment
+        rectifier = solph.components.Converter(
+            label="rectifier",
+            inputs={
+                b_el_ac: solph.Flow(
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.rectifier * n_days / n_days_in_year
+                    ),
+                    variable_costs=opex_var.rectifier,
+                )
+            },
+            outputs={b_el_dc: solph.Flow()},
+            conversion_factors={
+                b_el_dc: 0.98,
+            },
+        )
+
+        # The inverter assumed to have a fixed efficiency of 98%.
+        # its cost already included in the PV cost investment
+        inverter = solph.components.Converter(
+            label="inverter",
+            inputs={
+                b_el_dc: solph.Flow(
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.inverter * n_days / n_days_in_year
+                    ),
+                    variable_costs=opex_var.inverter,  # has to be fits input sheet
+                )
+            },
+            outputs={b_el_ac: solph.Flow()},
+            conversion_factors={
+                b_el_ac: 0.98,
+            },
+        )
+
+        excess_el = solph.components.Sink(
+            label="excess_el",
+            inputs={b_el_dc: solph.Flow(variable_costs=0.01)},
+        )
+
+        energy_system.add(b_el_dc, pv, rectifier, inverter, excess_el)
+
+        # ------------- HYDROGEN COMPONENTS (only if PV) -----------------
+        if "H" in case:
+            b_h2 = solph.Bus(label="hydrogen")
+
+            fuel_cell_efficiency = 0.99
+            fuel_cell = solph.components.Converter(
+                label="fuel_cell",
+                inputs={b_h2: solph.Flow()},
+                outputs={
+                    b_el_ac: solph.Flow(
+                        variable_costs=opex_var.fuel_cell,
+                        min=0.1,
+                        max=1,
+                        nominal_value=solph.Investment(
+                            ep_costs=epc.fuel_cell * n_days / n_days_in_year,
+                            maximum=2 * peak_demand,
+                            # minimum= 1.2*peak_demand,
+                        ),
+                        # nonconvex=solph.NonConvex(),
+                    )
+                },
+                conversion_factors={b_el_ac: fuel_cell_efficiency},
+            )
+
+            electrolyser = solph.components.Converter(
+                label="electrolyser",
+                inputs={
+                    b_el_dc: solph.Flow(
+                        nominal_value=solph.Investment(
+                            ep_costs=epc.electrolyser * n_days / n_days_in_year
+                        ),
+                        variable_costs=opex_var.electrolyser,  # has to be fits input sheet
+                    )
+                },
+                outputs={b_h2: solph.Flow()},
+                conversion_factors={
+                    b_el_ac: 0.98,
+                },
+            )
+
+            h2_storage = solph.components.GenericStorage(
+                label="h2_storage",
+                investment=solph.Investment(ep_costs=epc.h2_storage * n_days / n_days_in_year),
+                inputs={b_h2: solph.Flow(variable_costs=0.01)},  # AA: might be replaced by user input's opex_fixed
+                outputs={b_h2: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
+                min_storage_level=soc_min.h2_storage,
+                max_storage_level=soc_max.h2_storage,
+                loss_rate=0.01,
+                inflow_conversion_factor=0.9,
+                outflow_conversion_factor=0.9,
+                invest_relation_input_capacity=1,
+                invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+            )
+
+            energy_system.add(b_h2, electrolyser, fuel_cell, h2_storage)
+
+        # ------------- BATTERY (only if PV) -----------------
+        if "B" in case:
+            battery = solph.components.GenericStorage(
+                label="battery",
+                investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
+                inputs={
+                    b_el_dc: solph.Flow(variable_costs=0.01)
+                },
+                outputs={b_el_dc: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
+                min_storage_level=soc_min.battery,
+                max_storage_level=soc_max.battery,
+                loss_rate=0.01,
+                inflow_conversion_factor=0.9,
+                outflow_conversion_factor=0.9,
+                invest_relation_input_capacity=1,
+                invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+            )
+
+            energy_system.add(battery)
+
 
     ##########################################################################
     # ------------------ Optimise the energy system ------------------------ #
