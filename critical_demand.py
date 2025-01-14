@@ -874,7 +874,7 @@ if __name__ == "__main__":
     if case == "D":
         busses = ["electricity_ac"]
     else:
-        busses = ["electricity_ac", "electricity_dc", "battery"]
+        busses = ["electricity_ac", "electricity_dc", "battery", "hydrogen"]
 
     # plot bus flows
     bus_figures = plot_bus_flows(busses, results)
