@@ -3,8 +3,7 @@
 """
 General description
 -------------------
-This example illustrates the combination of Investment and NonConvex options
-applied to a diesel generator in a hybrid mini-grid system.
+This example illustrates the concept of critical vs non-critical demand within a hybrid mini-grid system.
 
 There are the following components:
 
@@ -53,7 +52,9 @@ except ModuleNotFoundError:
     ES_GRAPH = False
 z_version = 1
 
-if solph.__version__[:3] != "0.5" or (solph.__version__[:3] == "0.5" and int(solph.__version__.split(".")[2]) < z_version):
+if solph.__version__[:3] != "0.5" or (
+    solph.__version__[:3] == "0.5" and int(solph.__version__.split(".")[2]) < z_version
+):
 
     raise Exception(
         f"Oemof solph version should be 0.5.{z_version} (current version {solph.__version__}) , please update oemof.solph with for example `pip install oemof.solph==0.5.{z_version}`"
@@ -73,28 +74,18 @@ RESULTS_COLUMN_NAMES = [
     "annual_costs",
     "total_flow",
     "capacity",
-    "cash_flow", # AA: could be named fuel_expenditure_cost
+    "cash_flow",  # AA: could be named fuel_expenditure_cost
     "total_opex_costs",
-    "first_investment"
+    "first_investment",
 ]
 ##########################################################################
 # Initialize the energy system and calculate necessary parameters
 ##########################################################################
 
-#AA: the model still read these inputs below, need to be read from input excel sheet!!
-
-def other_costs():
-    variable_cost_diesel_genset = 0.025  # currency/kWh #ADN: how caculated, doese included opex costs per kWh/a in ??
-    diesel_cost = 1  # currency/l
-    diesel_density = 0.846  # kg/l
-    diesel_lhv = 11.83  # kWh/kg
-    return variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv
 
 
-case_D = "D"
-case_DBPV = "DBPV"
-case_BPV = "BPV"
-project_planning_cost = 5000
+def diesel_cost(vol_cost, dens, energy_dens):
+    return vol_cost / dens / energy_dens
 
 def run_simulation(df_costs, data, settings):
 
@@ -108,6 +99,12 @@ def run_simulation(df_costs, data, settings):
     demand_reduction_factor = settings.maximum_demand_reduction
 
     epc = df_costs["annuity"]
+    opex_var = df_costs["opex_variable"].fillna(0)
+    diesel_lhv = df_costs["energy_density"].diesel_genset
+    diesel_density = df_costs["density"].diesel_genset
+    soc_min = df_costs["soc_min"]
+    soc_max = df_costs["soc_max"]
+    project_planning_cost = df_costs["capex_fix"].project
 
     # Change the index of data to be able to select data based on the time range.
     data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
@@ -130,139 +127,26 @@ def run_simulation(df_costs, data, settings):
     peak_solar_potential = solar_potential.max()
     peak_demand = hourly_demand.max()
 
-    variable_cost_diesel_genset, diesel_cost, diesel_density, diesel_lhv = other_costs()
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
+
+    # -------------- Set up energy system ------------ #
+    # First the diesel sinks will be added, then the
+    # diesel and RE components if defined in the input sheet
 
     energy_system = solph.EnergySystem(timeindex=date_time_index)
 
     # -------------------- BUSES --------------------
     # Create electricity and diesel buses.
     b_el_ac = solph.Bus(label="electricity_ac")
-    b_el_dc = solph.Bus(label="electricity_dc")
-    if case in (case_D, case_DBPV):
-        b_diesel = solph.Bus(label="diesel")
 
-    # -------------------- SOURCES --------------------
-    if case in (case_D, case_DBPV):
-        diesel_source = solph.components.Source(
-            label="diesel_source",
-            outputs={
-                b_diesel: solph.Flow(
-                    variable_costs=diesel_cost / diesel_density / diesel_lhv
-                )
-            },
-        )
-
-    if case in (case_BPV, case_DBPV):
-        # EPC stands for the equivalent periodical costs.
-        pv = solph.components.Source(
-            label="pv",
-            outputs={
-                b_el_dc: solph.Flow(
-                    fix=solar_potential / peak_solar_potential,
-                    nominal_value=solph.Investment(
-                        ep_costs=epc.pv
-                        * n_days
-                        / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
-                    ),
-                    variable_costs=0,
-                )
-            },
-        )
-
-    # -------------------- TRANSFORMERS --------------------
-    # The diesel genset assumed to have a fixed efficiency of 33%.
-
-    # The output power of the diesel genset can only vary between
-    # the given minimum and maximum loads, which represent the fraction
-    # of the optimal capacity obtained from the optimization.
-
-    diesel_genset_efficiency = 0.33
-    if case in (case_D, case_DBPV):
-        min_load = 0.30
-        max_load = 1
-        diesel_genset = solph.components.Converter(
-            label="diesel_genset",
-            inputs={b_diesel: solph.Flow()},
-            outputs={
-                b_el_ac: solph.Flow(
-                    variable_costs=variable_cost_diesel_genset,
-                     min=min_load,
-                     max=max_load,
-                    nominal_value=solph.Investment(
-                        ep_costs=epc.diesel_genset * n_days / n_days_in_year,
-                        maximum=2 * peak_demand,
-                        #minimum= 1.2*peak_demand,
-                    ),
-                    # nonconvex=solph.NonConvex(),
-                )
-            },
-            conversion_factors={b_el_ac: diesel_genset_efficiency},
-        )
-    #import ipdb;ipdb.set_trace()
-    # The rectifier assumed to have a fixed efficiency of 98%.
-    # its cost already included in the PV cost investment
-    rectifier = solph.components.Converter(
-        label="rectifier",
-        inputs={
-            b_el_ac: solph.Flow(
-                nominal_value=solph.Investment(
-                    ep_costs=epc.rectifier * n_days / n_days_in_year
-                ),
-                variable_costs=5,
-            )
-        },
-        outputs={b_el_dc: solph.Flow()},
-        conversion_factors={
-            b_el_dc: 0.98,
-        },
-    )
-
-    # The inverter assumed to have a fixed efficiency of 98%.
-    # its cost already included in the PV cost investment
-    inverter = solph.components.Converter(
-        label="inverter",
-        inputs={
-            b_el_dc: solph.Flow(
-                nominal_value=solph.Investment(
-                    ep_costs=epc.inverter * n_days / n_days_in_year
-                ),
-                variable_costs=0, # has to be fits input sheet
-            )
-        },
-        outputs={b_el_ac: solph.Flow()},
-        conversion_factors={
-            b_el_ac: 0.98,
-        },
-    )
-
-    # -------------------- STORAGE --------------------
-
-    if case in (case_BPV, case_DBPV):
-        battery = solph.components.GenericStorage(
-            label="battery",
-            investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
-            inputs={b_el_dc: solph.Flow(variable_costs=0.01)},# AA: might be replaced by user input's opex_fixed
-            outputs={b_el_dc: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
-            min_storage_level=settings.storage_soc_min,
-            max_storage_level=settings.storage_soc_max,
-            loss_rate=0.01,
-            inflow_conversion_factor=0.9,
-            outflow_conversion_factor=0.9,
-            invest_relation_input_capacity=1,
-            invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
-        )
-        C_rate_charge= 1
-        C_rate_discharge= 0.5
-
-    # -------------------- SINKS (or DEMAND) --------------------
+    # -------------------- SINKS (or DEMAND) --------
     demand_el = solph.components.Sink(
         label="electricity_demand",
         inputs={
             b_el_ac: solph.Flow(
                 min=(1 - demand_reduction_factor)
-                * (non_critical_demand / non_critical_demand.max()),
+                    * (non_critical_demand / non_critical_demand.max()),
                 max=(non_critical_demand / non_critical_demand.max()),
                 nominal_value=non_critical_demand.max(),
             )
@@ -280,46 +164,182 @@ def run_simulation(df_costs, data, settings):
         },
     )
 
-    excess_el = solph.components.Sink(
-        label="excess_el",
-        inputs={b_el_dc: solph.Flow(variable_costs=1e9)},
-    )
+    energy_system.add(b_el_ac, demand_el, critical_demand_el)
 
-    energy_system.add(
-        b_el_dc,
-        b_el_ac,
-        inverter,
-        rectifier,
-        demand_el,
-        critical_demand_el,
-        excess_el,
-    )
-
-    # Add all objects to the energy system.
-    if case == case_BPV:
-        energy_system.add(
-            pv,
-            battery,
+    # -------------------- DIESEL SYSTEM --------------
+    if "D" in case:
+        diesel_genset_efficiency = 0.33
+        min_load = 0.20
+        max_load = 1
+        b_diesel = solph.Bus(label="diesel")
+        diesel_genset = solph.components.Converter(
+            label="diesel_genset",
+            inputs={b_diesel: solph.Flow()},
+            outputs={
+                b_el_ac: solph.Flow(
+                    variable_costs=opex_var.diesel_genset,
+                    min=min_load,
+                    max=max_load,
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.diesel_genset * n_days / n_days_in_year,
+                        # maximum=2 * peak_demand,
+                        # minimum= 1.2*peak_demand,
+                    ),
+                    # nonconvex=solph.NonConvex(),
+                )
+            },
+            conversion_factors={b_el_ac: diesel_genset_efficiency},
         )
 
-    if case == case_DBPV:
-        energy_system.add(
-            pv,
-            battery,
-            diesel_source,
-            diesel_genset,
-            b_diesel,
+        diesel_source = solph.components.Source(
+            label="diesel_source",
+            outputs={b_diesel: solph.Flow(variable_costs=opex_var.diesel_genset)},
         )
 
-    # TODO set the if case
-    if case == case_D:
-        energy_system.add(
-            diesel_source,
-            diesel_genset,
-            b_diesel,
+        energy_system.add(b_diesel, diesel_genset, diesel_source)
+
+
+    # -------------------- RE COMPONENTS --------------------
+    if "PV" in case:
+        b_el_dc = solph.Bus(label="electricity_dc")
+
+        # EPC stands for the equivalent periodical costs.
+        pv = solph.components.Source(
+            label="pv",
+            outputs={
+                b_el_dc: solph.Flow(
+                    fix=solar_potential / peak_solar_potential,
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.pv
+                                 * n_days
+                                 / n_days_in_year  # ADN:why not just put ep_costs=epc_PV??
+                    ),
+                    variable_costs=opex_var.pv,
+                )
+            },
         )
+        # The rectifier assumed to have a fixed efficiency of 98%.
+        # its cost already included in the PV cost investment
+        rectifier = solph.components.Converter(
+            label="rectifier",
+            inputs={
+                b_el_ac: solph.Flow(
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.rectifier * n_days / n_days_in_year
+                    ),
+                    variable_costs=opex_var.rectifier,
+                )
+            },
+            outputs={b_el_dc: solph.Flow()},
+            conversion_factors={
+                b_el_dc: 0.98,
+            },
+        )
+
+        # The inverter assumed to have a fixed efficiency of 98%.
+        # its cost already included in the PV cost investment
+        inverter = solph.components.Converter(
+            label="inverter",
+            inputs={
+                b_el_dc: solph.Flow(
+                    nominal_value=solph.Investment(
+                        ep_costs=epc.inverter * n_days / n_days_in_year
+                    ),
+                    variable_costs=opex_var.inverter,  # has to be fits input sheet
+                )
+            },
+            outputs={b_el_ac: solph.Flow()},
+            conversion_factors={
+                b_el_ac: 0.98,
+            },
+        )
+
+        excess_el = solph.components.Sink(
+            label="excess_el",
+            inputs={b_el_dc: solph.Flow(variable_costs=0.01)},
+        )
+
+        energy_system.add(b_el_dc, pv, rectifier, inverter, excess_el)
+
+        # ------------- HYDROGEN COMPONENTS (only if PV) -----------------
+        if "H" in case:
+            b_h2 = solph.Bus(label="hydrogen")
+
+            fuel_cell_efficiency = 0.99
+            fuel_cell = solph.components.Converter(
+                label="fuel_cell",
+                inputs={b_h2: solph.Flow()},
+                outputs={
+                    b_el_ac: solph.Flow(
+                        variable_costs=opex_var.fuel_cell,
+                        min=0.1,
+                        max=1,
+                        nominal_value=solph.Investment(
+                            ep_costs=epc.fuel_cell * n_days / n_days_in_year,
+                            maximum=2 * peak_demand,
+                            # minimum= 1.2*peak_demand,
+                        ),
+                        # nonconvex=solph.NonConvex(),
+                    )
+                },
+                conversion_factors={b_el_ac: fuel_cell_efficiency},
+            )
+
+            electrolyser = solph.components.Converter(
+                label="electrolyser",
+                inputs={
+                    b_el_dc: solph.Flow(
+                        nominal_value=solph.Investment(
+                            ep_costs=epc.electrolyser * n_days / n_days_in_year
+                        ),
+                        variable_costs=opex_var.electrolyser,  # has to be fits input sheet
+                    )
+                },
+                outputs={b_h2: solph.Flow()},
+                conversion_factors={
+                    b_el_ac: 0.98,
+                },
+            )
+
+            h2_storage = solph.components.GenericStorage(
+                label="h2_storage",
+                investment=solph.Investment(ep_costs=epc.h2_storage * n_days / n_days_in_year),
+                inputs={b_h2: solph.Flow(variable_costs=0.01)},  # AA: might be replaced by user input's opex_fixed
+                outputs={b_h2: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
+                min_storage_level=soc_min.h2_storage,
+                max_storage_level=soc_max.h2_storage,
+                loss_rate=0.01,
+                inflow_conversion_factor=0.9,
+                outflow_conversion_factor=0.9,
+                invest_relation_input_capacity=1,
+                invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+            )
+
+            energy_system.add(b_h2, electrolyser, fuel_cell, h2_storage)
+
+        # ------------- BATTERY (only if PV) -----------------
+        if "B" in case:
+            battery = solph.components.GenericStorage(
+                label="battery",
+                investment=solph.Investment(ep_costs=epc.battery * n_days / n_days_in_year),
+                inputs={
+                    b_el_dc: solph.Flow(variable_costs=0.01)
+                },
+                outputs={b_el_dc: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
+                min_storage_level=soc_min.battery,
+                max_storage_level=soc_max.battery,
+                loss_rate=0.01,
+                inflow_conversion_factor=0.9,
+                outflow_conversion_factor=0.9,
+                invest_relation_input_capacity=1,
+                invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+            )
+
+            energy_system.add(battery)
+
+
     ##########################################################################
-    # Optimise the energy system
+    # ------------------ Optimise the energy system ------------------------ #
     ##########################################################################
 
     # The higher the MipGap or ratioGap, the faster the solver would converge,
@@ -327,14 +347,12 @@ def run_simulation(df_costs, data, settings):
     solver_option = {"gurobi": {"MipGap": "0.02"}, "cbc": {"ratioGap": "0.02"}}
     solver = "cbc"
 
-    # TODO command to show the graph, might not work on windows, one could comment those lines
-
     energy_system_graph = f"case_{case}.png"
-    #if ES_GRAPH is True:
-        #es = ESGraphRenderer(
-            #energy_system, legend=True, filepath=energy_system_graph, img_format="png"
-        #)
-        #es.render()
+    if ES_GRAPH is True:
+        es = ESGraphRenderer(
+            energy_system, legend=True, filepath=energy_system_graph, img_format="png"
+        )
+        es.render()
 
     model = solph.Model(energy_system)
     model.solve(
@@ -349,6 +367,7 @@ def run_simulation(df_costs, data, settings):
     print("\n" + 50 * "*")
     print(f"Simulation Time:\t {end_simulation_time-start_simulation_time:.2f} s")
 
+    ### ---------- RESULTS PROCESSING ---------- ###
     results = solph.processing.results(model)
 
     asset_results = df_costs.copy()
@@ -357,26 +376,14 @@ def run_simulation(df_costs, data, settings):
     asset_results["cash_flow"] = 0
 
     project_lifetime = 25
-    wacc = 0.11
+    wacc = settings.wacc
     CRF = annuity(1, project_lifetime, wacc)
-
-    results_pv = solph.views.node(results=results, node="pv")
-    if case in (case_D, case_DBPV):
-        results_diesel_source = solph.views.node(results=results, node="diesel_source")
-        results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
-
-    results_inverter = solph.views.node(results=results, node="inverter")
-    results_rectifier = solph.views.node(results=results, node="rectifier")
-    if case in (case_BPV, case_DBPV):
-        results_battery = solph.views.node(results=results, node="battery")
 
     results_demand_el = solph.views.node(results=results, node="electricity_demand")
     results_critical_demand_el = solph.views.node(
         results=results, node="electricity_critical_demand"
     )
-    results_excess_el = solph.views.node(results=results, node="excess_el")
 
-    # -------------------- SEQUENCES (DYNAMIC) --------------------
     # Hourly demand profile.
     sequences_demand = results_demand_el["sequences"][
         (("electricity_ac", "electricity_demand"), "flow")
@@ -386,20 +393,14 @@ def run_simulation(df_costs, data, settings):
         (("electricity_ac", "electricity_critical_demand"), "flow")
     ]
 
-    if case in (case_BPV, case_DBPV):
-        # Hourly profiles for solar potential and pv production.
-        sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
-        asset_results.loc["pv", "total_flow"] = sequences_pv.sum()
+    # Set all capacity defaults to 0
+    capacities = dict.fromkeys(["diesel_genset", "pv", "inverter",
+                                        "rectifier", "battery", "fuel_cell",
+                                        "electrolyser", "h2_storage"], 0)
 
-        # TODO find what we would like to have here
-        asset_results.loc["battery", "total_flow"] = 0
-
-    if case in (case_D, case_DBPV):
-        # Hourly profiles for diesel consumption and electricity production
-        # in the diesel genset.
-        # The 'flow' from oemof is in kWh and must be converted to
-        # kg by dividing it by the lower heating value and then to
-        # liter by dividing it by the diesel density.
+    if "D" in case:
+        results_diesel_source = solph.views.node(results=results, node="diesel_source")
+        results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
         sequences_diesel_consumption = (
             results_diesel_source["sequences"][(("diesel_source", "diesel"), "flow")]
             / diesel_lhv
@@ -407,74 +408,78 @@ def run_simulation(df_costs, data, settings):
         )
 
         asset_results.loc["diesel_genset", "cash_flow"] = (
-            diesel_cost * sequences_diesel_consumption.sum()
+            opex_var.diesel_genset * sequences_diesel_consumption.sum()
         )
 
         # Hourly profiles for electricity production in the diesel genset.
         sequences_diesel_genset = results_diesel_genset["sequences"][
             (("diesel_genset", "electricity_ac"), "flow")
         ]
-
-    # Hourly profiles for excess ac and dc electricity production.
-    sequences_excess = results_excess_el["sequences"][
-        (("electricity_dc", "excess_el"), "flow")
-    ]
-
-    sequences_inverter = results_inverter["sequences"][
-        (("inverter", "electricity_ac"), "flow")
-    ]
-
-    sequences_rectifier = results_rectifier["sequences"][
-        (("rectifier", "electricity_dc"), "flow")
-    ]
-
-    asset_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
-    asset_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
-
-    if case in (case_D, case_DBPV):
         # -------------------- SCALARS (STATIC) --------------------
-        capacity_diesel_genset = results_diesel_genset["scalars"][
+        capacities["diesel_genset"] = results_diesel_genset["scalars"][
             (("diesel_genset", "electricity_ac"), "invest")
         ]
 
         # Define a tolerance to force 'too close' numbers to the `min_load`
         # and to 0 to be the same as the `min_load` and 0.
         tol = 1e-8
-        load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
+        load_diesel_genset = sequences_diesel_genset / capacities["diesel_genset"]
         sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
         asset_results.loc["diesel_genset", "total_flow"] = sequences_diesel_genset.sum()
-    else:
-        capacity_diesel_genset = 0
 
-    if case in (case_BPV, case_DBPV):
-        capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
+    if "PV" in case:
+        results_pv = solph.views.node(results=results, node="pv")
+        results_inverter = solph.views.node(results=results, node="inverter")
+        results_rectifier = solph.views.node(results=results, node="rectifier")
+        results_excess_el = solph.views.node(results=results, node="excess_el")
+        # Hourly profiles for solar potential and pv production.
+        sequences_pv = results_pv["sequences"][(("pv", "electricity_dc"), "flow")]
+        asset_results.loc["pv", "total_flow"] = sequences_pv.sum()
 
-        capacity_battery = results_battery["scalars"][
-            (("electricity_dc", "battery"), "invest")
+        sequences_excess = results_excess_el["sequences"][
+            (("electricity_dc", "excess_el"), "flow")
         ]
-    else:
-        capacity_pv = 0
-        capacity_battery = 0
 
-    if "scalars" in results_inverter:
-        capacity_inverter = results_inverter["scalars"][
+        sequences_inverter = results_inverter["sequences"][
+            (("inverter", "electricity_ac"), "flow")
+        ]
+
+        sequences_rectifier = results_rectifier["sequences"][
+            (("rectifier", "electricity_dc"), "flow")
+        ]
+
+        asset_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
+        asset_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
+        capacities["pv"] = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
+        capacities["inverter"] = results_inverter["scalars"][
             (("electricity_dc", "inverter"), "invest")
         ]
-    else:
-        capacity_inverter = 0
-
-    if "scalars" in results_rectifier:
-        capacity_rectifier = results_rectifier["scalars"][
+        capacities["rectifier"] = results_rectifier["scalars"][
             (("electricity_ac", "rectifier"), "invest")
         ]
-    else:
-        capacity_rectifier = 0
 
-    asset_results.loc["diesel_genset", "capacity"] = capacity_diesel_genset
-    asset_results.loc["pv", "capacity"] = capacity_pv
-    asset_results.loc["battery", "capacity"] = capacity_battery
-    asset_results.loc["inverter", "capacity"] = capacity_inverter
-    asset_results.loc["rectifier", "capacity"] = capacity_rectifier
+        if "B" in case:
+            results_battery = solph.views.node(results=results, node="battery")
+            capacities["battery"] = results_battery["scalars"][
+                (("electricity_dc", "battery"), "invest")
+            ]
+
+        if "H" in case:
+            results_electrolyser = solph.views.node(results=results, node="electrolyser")
+            results_fuel_cell = solph.views.node(results=results, node="fuel_cell")
+            results_h2_storage = solph.views.node(results=results, node="h2_storage")
+            capacities["electrolyser"] = results_electrolyser["scalars"][
+                (("electricity_dc", "electrolyser"), "invest")
+            ]
+            capacities["fuel_cell"] = results_fuel_cell["scalars"][
+                (("fuel_cell", "electricity_ac"), "invest")
+            ]
+            capacities["h2_storage"] = results_h2_storage["scalars"][
+                (("hydrogen", "h2_storage"), "invest")
+            ]
+
+    for asset, capacity in capacities.items():
+        asset_results.loc[asset, "capacity"] = capacity
 
     # Scaling annuity to timeframe
     year_fraction = n_days / n_days_in_year
@@ -492,7 +497,8 @@ def run_simulation(df_costs, data, settings):
 
     asset_results["total_opex_costs"] = asset_results.apply(
         lambda x: (x.opex_fix * x.capacity) * year_fraction
-        + x.total_flow * x.opex_variable + x. cash_flow,
+        + x.total_flow * x.opex_variable
+        + x.cash_flow,
         axis=1,
     )
 
@@ -500,27 +506,22 @@ def run_simulation(df_costs, data, settings):
     asset_results = asset_results[RESULTS_COLUMN_NAMES]
     asset_results.to_csv(f"results_{case}.csv")
 
-    NPV = ((asset_results.annual_costs.sum() + asset_results.cash_flow.sum()) / CRF) + project_planning_cost
+    NPV = (
+        (asset_results.annual_costs.sum() + asset_results.cash_flow.sum()) / CRF
+    ) + project_planning_cost
 
     # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
-    Supplied_critical_demand = sequences_critical_demand.sum(axis=0)
-    Supplied_non_critical_demand = sequences_demand.sum(axis=0)
+    supplied_critical_demand = sequences_critical_demand.sum(axis=0)
+    supplied_non_critical_demand = sequences_demand.sum(axis=0)
 
     # Levelized cost of electricity in the system in currency's Cent per kWh.
     lcoe = 100 * (NPV * CRF) / total_demand
 
-    if case == case_DBPV:
-        # The share of renewable energy source used to cover the demand.
-        res = (
-            100
-            * sequences_pv.sum(axis=0)
-            / (sequences_diesel_genset.sum(axis=0) + sequences_pv.sum(axis=0))
-        )
-    elif case == case_D:
+    if case == "D":
         res = 0
     else:
-        res = 100
+        res = 100 * (total_demand - sequences_diesel_genset.sum(axis=0)) / total_demand
 
     # The amount of excess electricity (which must probably be dumped).
     excess_rate = (
@@ -547,12 +548,13 @@ def run_simulation(df_costs, data, settings):
     ) + non_critical_demand[sequences_demand.index].sum(axis=0)
 
     total_opex_costs = asset_results.total_opex_costs.sum()
-    first_investment= asset_results.first_investment.sum()+  project_planning_cost
+    first_investment = asset_results.first_investment.sum() + project_planning_cost
     overall_peak_demand = sequences_demand.max() + sequences_critical_demand.max()
 
     ##########################################################################
     # Print the results in the terminal
     ##########################################################################
+
     scalars = dict(
         lcoe=lcoe,
         npv=NPV,
@@ -609,14 +611,16 @@ def run_simulation(df_costs, data, settings):
     print(f"Overall Peak Demand:\t {overall_peak_demand:.0f} kW")
     print(f"LCOE:\t\t {lcoe:.2f} cent/kWh")
     print(f"NPV:\t\t {NPV:.2f} USD")
-    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD/year")
+    print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD/{settings.n_days} days")
     print(f"First investment :\t\t {first_investment:.2f} USD")
-    print(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year")
+    print(
+        f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/{settings.n_days} days"
+    )
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
     print(f"Supplied demand:\t\t {total_demand:.1f} kWh")
-    print(f"Supplied critical demand:\t\t {Supplied_critical_demand:.1f} kWh")
-    print(f"Supplied non critical demand:\t\t {Supplied_non_critical_demand:.1f} kWh")
+    print(f"Supplied critical demand:\t\t {supplied_critical_demand:.1f} kWh")
+    print(f"Supplied non critical demand:\t\t {supplied_non_critical_demand:.1f} kWh")
     print(f"Original demand:\t\t {original_demand:.1f} kWh")
     print(
         f"Share of critical demand fulfilled :\t\t {critical_demand_fulfilled:.0f}% of the total critical demand"
@@ -627,21 +631,28 @@ def run_simulation(df_costs, data, settings):
     print(50 * "*")
     print("Optimal Capacities:")
     print("-------------------")
-    print(f"Diesel Genset:\t {capacity_diesel_genset:.1f} kW")
-    print(f"PV:\t\t {capacity_pv:.1f} kW")
-    print(f"Battery:\t {capacity_battery:.1f} kWh")
-    print(f"Inverter:\t {capacity_inverter:.1f} kW")
-    print(f"Rectifier:\t {capacity_rectifier:.1f} kW")
+    for asset, capacity in capacities.items():
+        unit = "kWh" if asset in ["battery", "h2_storage"] else "kW"
+        print(f"{asset.title()}: {capacity:.1f} {unit}")
     print(50 * "*")
+
+    ##############################################
+    # ------------ Set up DashApp -------------- #
+    ##############################################
 
     result_div = html.Div(
         children=[
             html.Div(
                 children=[
-                    html.P(f"Peak Demand:\t {sequences_demand.max():.1f} kW"),
+                    html.P(f"Overall peak Demand:\t {overall_peak_demand:.1f} kW"),
                     html.P(f"LCOE:\t\t {lcoe:.2f} cent/kWh", title=help_lcoe),
-                    html.P(f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD", title="It is the sum of the product of optimized capacity and annualized costs of each asset"),
-                    html.P(f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/year"),
+                    html.P(
+                        f"First investment :\t\t {asset_results.first_investment.sum():.2f} USD",
+                        title="It is the sum of the product of optimized capacity and annualized costs of each asset",
+                    ),
+                    html.P(
+                        f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/{settings.n_days} days"
+                    ),
                     html.P(f"RES:\t\t {res:.0f}%"),
                     html.P(f"Excess:\t\t {excess_rate:.1f}% of the total production"),
                     html.P(
@@ -656,11 +667,7 @@ def run_simulation(df_costs, data, settings):
             html.H3("Optimal Capacities:"),
             html.Div(
                 children=[
-                    html.P(f"Diesel Genset:\t {capacity_diesel_genset:.1f} kW"),
-                    html.P(f"PV:\t\t {capacity_pv:.1f} kW"),
-                    html.P(f"Battery:\t {capacity_battery:.1f} kWh"),
-                    html.P(f"Inverter:\t {capacity_inverter:.1f} kW"),
-                    html.P(f"Rectifier:\t {capacity_rectifier:.1f} kW"),
+                    html.P(f"{asset.title()}:\t {capacity:.1f} kW") for asset, capacity in capacities.items()
                 ],
                 style={"display": "flex", "justify-content": "space-between"},
             ),
@@ -801,51 +808,8 @@ def sankey(energy_system, results, ts=None):
     return fig.to_dict()
 
 
-if __name__ == "__main__":
-    # Import data.
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-
-    parser = argparse.ArgumentParser(
-        prog="python critical_demand.py",
-        description="Build a simple model with non critical demand",
-    )
-    parser.add_argument(
-        "-i",
-        dest="input_file",
-        nargs="?",
-        type=str,
-        help="path to the input file",
-        default=os.path.join(current_directory, "input_case.xlsx"),
-    )
-
-    args = vars(parser.parse_args())
-
-    filename = args.get("input_file")
-
-    if not os.path.exists(filename):
-        raise FileNotFoundError(
-            f"The file {f} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
-        )
-    df_costs, data, settings, _ = read_input_file(filename)
-
-    (
-        results,
-        asset_results,
-        energy_system,
-        result_div,
-        system_results,
-        date_time_index,
-        non_critical_demand,
-        critical_demand,
-    ) = run_simulation(df_costs, data, settings)
-    case = settings.case
-    energy_system_graph = encode_image_file(f"case_{case}.png")
-
+def plot_bus_flows(busses, results):
     bus_figures = []
-    if case == case_D:
-        busses = ["electricity_ac"]
-    else:
-        busses = ["electricity_ac", "electricity_dc", "battery"]
 
     for bus in busses:
         if bus != "battery":
@@ -861,11 +825,16 @@ if __name__ == "__main__":
         else:
             capacity_battery = asset_results.capacity.battery
             if capacity_battery != 0:
-                soc_battery = solph.views.node(results, node=bus)["sequences"][
-                                  (("battery", "None"), "storage_content")] / capacity_battery
+                soc_battery = (
+                    solph.views.node(results, node=bus)["sequences"][
+                        (("battery", "None"), "storage_content")
+                    ]
+                    / capacity_battery
+                )
             else:
                 soc_battery = solph.views.node(results, node=bus)["sequences"][
-                    (("battery", "None"), "storage_content")]
+                    (("battery", "None"), "storage_content")
+                ]
 
             fig = go.Figure(layout=dict(title=f"{bus} node"))
 
@@ -876,17 +845,47 @@ if __name__ == "__main__":
             )
 
         bus_figures.append(fig)
+    return bus_figures
 
-    # only in case of battery --> WHY DOESN#T it WORK???
-    if case != case_D:
-        bus = "battery"
 
+if __name__ == "__main__":
+    filename = "input_case.xlsx"
+
+    if not os.path.exists(filename):
+        raise FileNotFoundError(
+            f"The file was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+        )
+    df_costs, data, settings, _ = read_input_file(filename)
+    (
+        results,
+        asset_results,
+        energy_system,
+        result_div,
+        system_results,
+        date_time_index,
+        non_critical_demand,
+        critical_demand,
+    ) = run_simulation(df_costs, data, settings)
+    case = settings.case
+    energy_system_graph = encode_image_file(f"case_{case}.png")
+    soc_min = df_costs["soc_min"]
+    soc_max = df_costs["soc_max"]
+
+    if case == "D":
+        busses = ["electricity_ac"]
+    else:
+        busses = ["electricity_ac", "electricity_dc", "battery"]
+
+    # plot bus flows
+    bus_figures = plot_bus_flows(busses, results)
 
     # loading external resources
     external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
     options = dict(
         # external_stylesheets=external_stylesheets
     )
+
+    ######### --------- Dash app layout ---------- ###
 
     demo_app = dash.Dash(__name__, **options)
 
@@ -981,7 +980,7 @@ if __name__ == "__main__":
         Input(component_id="ts_slice_select", component_property="value"),
     )
     def update_figures(ts):
-        ts = int(ts)
+        ts = int(ts) if ts is not None else 0
         # see if case changes, otherwise do not rerun this
         date_time_index = energy_system.timeindex
 
@@ -1017,7 +1016,10 @@ if __name__ == "__main__":
 
                     fig.add_trace(
                         go.Scatter(
-                            x=g.index, y=g.values * negative_sign, name=asset_name, **opts
+                            x=g.index,
+                            y=g.values * negative_sign,
+                            name=asset_name,
+                            **opts,
                         )
                     )
                     if g.max() > max_y:
@@ -1025,13 +1027,18 @@ if __name__ == "__main__":
             else:
                 capacity_battery = asset_results.capacity.battery
                 if capacity_battery != 0:
-                    soc_battery = solph.views.node(results, node=bus)["sequences"][
-                                      (("battery", "None"), "storage_content")] / capacity_battery
+                    soc_battery = (
+                        solph.views.node(results, node=bus)["sequences"][
+                            (("battery", "None"), "storage_content")
+                        ]
+                        / capacity_battery
+                    )
                 else:
                     soc_battery = solph.views.node(results, node=bus)["sequences"][
-                        (("battery", "None"), "storage_content")]
+                        (("battery", "None"), "storage_content")
+                    ]
 
-                fig = go.Figure(layout=dict(title=f"{bus} node", yaxis_range=[0,1]))
+                fig = go.Figure(layout=dict(title=f"{bus} node", yaxis_range=[0, 1]))
 
                 fig.add_trace(
                     go.Scatter(
@@ -1040,12 +1047,16 @@ if __name__ == "__main__":
                 )
                 fig.add_trace(
                     go.Scatter(
-                        x=soc_battery.index, y=np.ones(len(soc_battery.index))*settings.storage_soc_min, name="min soc battery"
+                        x=soc_battery.index,
+                        y=np.ones(len(soc_battery.index)) * soc_min.battery,
+                        name="min soc battery",
                     )
                 )
                 fig.add_trace(
                     go.Scatter(
-                        x=soc_battery.index, y=np.ones(len(soc_battery.index))*settings.storage_soc_max, name="max soc battery"
+                        x=soc_battery.index,
+                        y=np.ones(len(soc_battery.index)) * soc_max.battery,
+                        name="max soc battery",
                     )
                 )
             fig.add_trace(
@@ -1072,5 +1083,4 @@ if __name__ == "__main__":
     def change_ts_value(val):
         return val
 
-    demo_app.run_server(debug=True, port=settings.port)
-    #import ipdb;ipdb.set_trace()
+    demo_app.run_server(debug=True, port=settings.port, use_reloader=False)

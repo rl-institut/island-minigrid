@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 def read_input_file(filename):
     """Parse a .xlsx input file"""
 
-    wb = load_workbook(filename=filename)
+    wb = load_workbook(filename=filename, data_only=True)
     sheet_names = wb.sheetnames
 
     for sn in ("costs", "timeseries", "settings"):
