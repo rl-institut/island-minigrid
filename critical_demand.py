@@ -87,9 +87,6 @@ RESULTS_COLUMN_NAMES = [
 def diesel_cost(vol_cost, dens, energy_dens):
     return vol_cost / dens / energy_dens
 
-project_planning_cost = 5000
-
-
 def run_simulation(df_costs, data, settings):
 
     start_date_obj = settings.start
@@ -107,6 +104,7 @@ def run_simulation(df_costs, data, settings):
     diesel_density = df_costs["density"].diesel_genset
     soc_min = df_costs["soc_min"]
     soc_max = df_costs["soc_max"]
+    project_planning_cost = df_costs["capex_fix"].project
 
     # Change the index of data to be able to select data based on the time range.
     data.index = pd.date_range(start=start_date_obj, periods=len(data), freq="H")
@@ -395,6 +393,11 @@ def run_simulation(df_costs, data, settings):
         (("electricity_ac", "electricity_critical_demand"), "flow")
     ]
 
+    # Set all capacity defaults to 0
+    capacities = dict.fromkeys(["diesel_genset", "pv", "inverter",
+                                        "rectifier", "battery", "fuel_cell",
+                                        "electrolyser", "h2_storage"], 0)
+
     if "D" in case:
         results_diesel_source = solph.views.node(results=results, node="diesel_source")
         results_diesel_genset = solph.views.node(results=results, node="diesel_genset")
@@ -413,18 +416,16 @@ def run_simulation(df_costs, data, settings):
             (("diesel_genset", "electricity_ac"), "flow")
         ]
         # -------------------- SCALARS (STATIC) --------------------
-        capacity_diesel_genset = results_diesel_genset["scalars"][
+        capacities["diesel_genset"] = results_diesel_genset["scalars"][
             (("diesel_genset", "electricity_ac"), "invest")
         ]
 
         # Define a tolerance to force 'too close' numbers to the `min_load`
         # and to 0 to be the same as the `min_load` and 0.
         tol = 1e-8
-        load_diesel_genset = sequences_diesel_genset / capacity_diesel_genset
+        load_diesel_genset = sequences_diesel_genset / capacities["diesel_genset"]
         sequences_diesel_genset[np.abs(load_diesel_genset) < tol] = 0
         asset_results.loc["diesel_genset", "total_flow"] = sequences_diesel_genset.sum()
-    else:
-        capacity_diesel_genset = 0
 
     if "PV" in case:
         results_pv = solph.views.node(results=results, node="pv")
@@ -449,59 +450,36 @@ def run_simulation(df_costs, data, settings):
 
         asset_results.loc["inverter", "total_flow"] = sequences_inverter.sum()
         asset_results.loc["rectifier", "total_flow"] = sequences_rectifier.sum()
-        capacity_pv = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
-        capacity_inverter = results_inverter["scalars"][
+        capacities["pv"] = results_pv["scalars"][(("pv", "electricity_dc"), "invest")]
+        capacities["inverter"] = results_inverter["scalars"][
             (("electricity_dc", "inverter"), "invest")
         ]
-        capacity_rectifier = results_rectifier["scalars"][
+        capacities["rectifier"] = results_rectifier["scalars"][
             (("electricity_ac", "rectifier"), "invest")
         ]
 
-
         if "B" in case:
             results_battery = solph.views.node(results=results, node="battery")
-            capacity_battery = results_battery["scalars"][
+            capacities["battery"] = results_battery["scalars"][
                 (("electricity_dc", "battery"), "invest")
             ]
-        else:
-            capacity_battery = 0
 
         if "H" in case:
             results_electrolyser = solph.views.node(results=results, node="electrolyser")
             results_fuel_cell = solph.views.node(results=results, node="fuel_cell")
             results_h2_storage = solph.views.node(results=results, node="h2_storage")
-            capacity_electrolyser = results_electrolyser["scalars"][
+            capacities["electrolyser"] = results_electrolyser["scalars"][
                 (("electricity_dc", "electrolyser"), "invest")
             ]
-            capacity_fuel_cell = results_fuel_cell["scalars"][
+            capacities["fuel_cell"] = results_fuel_cell["scalars"][
                 (("fuel_cell", "electricity_ac"), "invest")
             ]
-            capacity_h2_storage = results_h2_storage["scalars"][
+            capacities["h2_storage"] = results_h2_storage["scalars"][
                 (("hydrogen", "h2_storage"), "invest")
             ]
-        else:
-            capacity_fuel_cell = 0
-            capacity_electrolyser = 0
-            capacity_h2_storage = 0
 
-    else:
-        capacity_pv = 0
-        capacity_rectifier = 0
-        capacity_inverter = 0
-        capacity_battery = 0
-        capacity_fuel_cell = 0
-        capacity_electrolyser = 0
-        capacity_h2_storage = 0
-
-
-    asset_results.loc["diesel_genset", "capacity"] = capacity_diesel_genset
-    asset_results.loc["pv", "capacity"] = capacity_pv
-    asset_results.loc["battery", "capacity"] = capacity_battery
-    asset_results.loc["inverter", "capacity"] = capacity_inverter
-    asset_results.loc["rectifier", "capacity"] = capacity_rectifier
-    asset_results.loc["electrolyser", "capacity"] = capacity_electrolyser
-    asset_results.loc["fuel_cell", "capacity"] = capacity_fuel_cell
-    asset_results.loc["h2_storage", "capacity"] = capacity_h2_storage
+    for asset, capacity in capacities.items():
+        asset_results.loc[asset, "capacity"] = capacity
 
     # Scaling annuity to timeframe
     year_fraction = n_days / n_days_in_year
@@ -653,11 +631,9 @@ def run_simulation(df_costs, data, settings):
     print(50 * "*")
     print("Optimal Capacities:")
     print("-------------------")
-    print(f"Diesel Genset:\t {capacity_diesel_genset:.1f} kW")
-    print(f"PV:\t\t {capacity_pv:.1f} kW")
-    print(f"Battery:\t {capacity_battery:.1f} kWh")
-    print(f"Inverter:\t {capacity_inverter:.1f} kW")
-    print(f"Rectifier:\t {capacity_rectifier:.1f} kW")
+    for asset, capacity in capacities.items():
+        unit = "kWh" if asset in ["battery", "h2_storage"] else "kW"
+        print(f"{asset.title()}: {capacity:.1f} {unit}")
     print(50 * "*")
 
     ##############################################
@@ -691,11 +667,7 @@ def run_simulation(df_costs, data, settings):
             html.H3("Optimal Capacities:"),
             html.Div(
                 children=[
-                    html.P(f"Diesel Genset:\t {capacity_diesel_genset:.1f} kW"),
-                    html.P(f"PV:\t\t {capacity_pv:.1f} kW"),
-                    html.P(f"Battery:\t {capacity_battery:.1f} kWh"),
-                    html.P(f"Inverter:\t {capacity_inverter:.1f} kW"),
-                    html.P(f"Rectifier:\t {capacity_rectifier:.1f} kW"),
+                    html.P(f"{asset.title()}:\t {capacity:.1f} kW") for asset, capacity in capacities.items()
                 ],
                 style={"display": "flex", "justify-content": "space-between"},
             ),
