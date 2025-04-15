@@ -122,11 +122,10 @@ def run_simulation(df_costs, data, settings):
     # Choose the range of the solar potential and demand
     # based on the selected simulation period.
     solar_potential = data.SolarGen.loc[start_datetime:end_datetime]
-    hourly_demand = data.Demand.loc[start_datetime:end_datetime]
-    non_critical_demand = hourly_demand
+    non_critical_demand = data.Demand.loc[start_datetime:end_datetime]
     critical_demand = data.CriticalDemand.loc[start_datetime:end_datetime]
     peak_solar_potential = solar_potential.max()
-    peak_demand = hourly_demand.max()
+    peak_demand = (non_critical_demand + critical_demand).max()
 
     # Start time for calculating the total elapsed time.
     start_simulation_time = time.time()
@@ -547,7 +546,7 @@ def run_simulation(df_costs, data, settings):
 
     total_opex_costs = asset_results.total_opex_costs.sum()
     first_investment = asset_results.first_investment.sum() + project_planning_cost
-    overall_peak_demand = sequences_demand.max() + sequences_critical_demand.max()
+    overall_peak_demand = (sequences_demand + sequences_critical_demand).max()
 
     ##########################################################################
     # Print the results in the terminal
