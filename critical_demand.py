@@ -846,7 +846,7 @@ def plot_bus_flows(busses, results):
 
 
 if __name__ == "__main__":
-    filename = "input_case.xlsx"
+    filename = "input_case_H2Pacific.xlsx"
 
     if not os.path.exists(filename):
         raise FileNotFoundError(
