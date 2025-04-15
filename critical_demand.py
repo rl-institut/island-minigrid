@@ -100,6 +100,7 @@ def run_simulation(df_costs, data, settings):
 
     epc = df_costs["annuity"]
     opex_var = df_costs["opex_variable"].fillna(0)
+    efficiency = df_costs["efficiency"].fillna(0)
     diesel_lhv = df_costs["energy_density"].diesel_genset
     diesel_density = df_costs["density"].diesel_genset
     soc_min = df_costs["soc_min"]
@@ -168,7 +169,6 @@ def run_simulation(df_costs, data, settings):
 
     # -------------------- DIESEL SYSTEM --------------
     if "D" in case:
-        diesel_genset_efficiency = 0.33
         min_load = 0.20
         max_load = 1
         b_diesel = solph.Bus(label="diesel")
@@ -188,7 +188,7 @@ def run_simulation(df_costs, data, settings):
                     # nonconvex=solph.NonConvex(),
                 )
             },
-            conversion_factors={b_el_ac: diesel_genset_efficiency},
+            conversion_factors={b_el_ac: efficiency.diesel_genset},
         )
 
         diesel_source = solph.components.Source(
@@ -232,7 +232,7 @@ def run_simulation(df_costs, data, settings):
             },
             outputs={b_el_dc: solph.Flow()},
             conversion_factors={
-                b_el_dc: 0.98,
+                b_el_dc: efficiency.rectifier,
             },
         )
 
@@ -250,7 +250,7 @@ def run_simulation(df_costs, data, settings):
             },
             outputs={b_el_ac: solph.Flow()},
             conversion_factors={
-                b_el_ac: 0.98,
+                b_el_ac: efficiency.inverter,
             },
         )
 
@@ -265,7 +265,6 @@ def run_simulation(df_costs, data, settings):
         if "H" in case:
             b_h2 = solph.Bus(label="hydrogen")
 
-            fuel_cell_efficiency = 0.99
             fuel_cell = solph.components.Converter(
                 label="fuel_cell",
                 inputs={b_h2: solph.Flow()},
@@ -282,7 +281,7 @@ def run_simulation(df_costs, data, settings):
                         # nonconvex=solph.NonConvex(),
                     )
                 },
-                conversion_factors={b_el_ac: fuel_cell_efficiency},
+                conversion_factors={b_el_ac: efficiency.fuel_cell},
             )
 
             electrolyser = solph.components.Converter(
@@ -297,7 +296,7 @@ def run_simulation(df_costs, data, settings):
                 },
                 outputs={b_h2: solph.Flow()},
                 conversion_factors={
-                    b_el_ac: 0.98,
+                    b_el_ac: efficiency.electrolyser,
                 },
             )
 
@@ -308,9 +307,8 @@ def run_simulation(df_costs, data, settings):
                 outputs={b_h2: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
                 min_storage_level=soc_min.h2_storage,
                 max_storage_level=soc_max.h2_storage,
-                loss_rate=0.01,
-                inflow_conversion_factor=0.9,
-                outflow_conversion_factor=0.9,
+                inflow_conversion_factor=np.sqrt(efficiency.h2_storage),
+                outflow_conversion_factor=np.sqrt(efficiency.h2_storage),
                 invest_relation_input_capacity=1,
                 invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
             )
@@ -328,9 +326,9 @@ def run_simulation(df_costs, data, settings):
                 outputs={b_el_dc: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
                 min_storage_level=soc_min.battery,
                 max_storage_level=soc_max.battery,
-                loss_rate=0.01,
-                inflow_conversion_factor=0.9,
-                outflow_conversion_factor=0.9,
+                # loss_rate=0.01,
+                inflow_conversion_factor=np.sqrt(efficiency.battery),
+                outflow_conversion_factor=np.sqrt(efficiency.battery),
                 invest_relation_input_capacity=1,
                 invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
             )
