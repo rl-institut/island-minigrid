@@ -100,9 +100,10 @@ def run_simulation(df_costs, data, settings):
 
     epc = df_costs["annuity"]
     opex_var = df_costs["opex_variable"].fillna(0)
-    efficiency = df_costs["efficiency"].fillna(0)
+    efficiency = df_costs["efficiency"].fillna(1)
     diesel_lhv = df_costs["energy_density"].diesel_genset
     diesel_density = df_costs["density"].diesel_genset
+    diesel_vol_cost = df_costs["volumetric_cost"].diesel_genset
     soc_min = df_costs["soc_min"]
     soc_max = df_costs["soc_max"]
     project_planning_cost = df_costs["capex_fix"].project
@@ -192,7 +193,7 @@ def run_simulation(df_costs, data, settings):
 
         diesel_source = solph.components.Source(
             label="diesel_source",
-            outputs={b_diesel: solph.Flow(variable_costs=opex_var.diesel_genset)},
+            outputs={b_diesel: solph.Flow(variable_costs=diesel_cost(df_costs["volumetric_cost"].diesel_genset, df_costs["density"].diesel_genset, df_costs["energy_density"].diesel_genset))},
         )
 
         energy_system.add(b_diesel, diesel_genset, diesel_source)
@@ -295,21 +296,21 @@ def run_simulation(df_costs, data, settings):
                 },
                 outputs={b_h2: solph.Flow()},
                 conversion_factors={
-                    b_el_ac: efficiency.electrolyser,
+                    b_h2: efficiency.electrolyser,
                 },
             )
 
             h2_storage = solph.components.GenericStorage(
                 label="h2_storage",
                 investment=solph.Investment(ep_costs=epc.h2_storage * n_days / n_days_in_year),
-                inputs={b_h2: solph.Flow(variable_costs=0.01)},  # AA: might be replaced by user input's opex_fixed
+                inputs={b_h2: solph.Flow(variable_costs=0.0)},
                 outputs={b_h2: solph.Flow(nominal_value=solph.Investment(ep_costs=0))},
                 min_storage_level=soc_min.h2_storage,
                 max_storage_level=soc_max.h2_storage,
                 inflow_conversion_factor=np.sqrt(efficiency.h2_storage),
                 outflow_conversion_factor=np.sqrt(efficiency.h2_storage),
                 invest_relation_input_capacity=1,
-                invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+                invest_relation_output_capacity=1,  # fixes the input flow investment to the output flow investment
             )
 
             energy_system.add(b_h2, electrolyser, fuel_cell, h2_storage)
@@ -329,7 +330,7 @@ def run_simulation(df_costs, data, settings):
                 inflow_conversion_factor=np.sqrt(efficiency.battery),
                 outflow_conversion_factor=np.sqrt(efficiency.battery),
                 invest_relation_input_capacity=1,
-                invest_relation_output_capacity=0.5,  # fixes the input flow investment to the output flow investment
+                invest_relation_output_capacity=1,  # fixes the input flow investment to the output flow investment
             )
 
             energy_system.add(battery)
@@ -517,6 +518,8 @@ def run_simulation(df_costs, data, settings):
 
     if case == "D":
         res = 0
+    elif "D" not in case:
+        res = 100
     else:
         res = 100 * (total_demand - sequences_diesel_genset.sum(axis=0)) / total_demand
 
@@ -820,26 +823,27 @@ def plot_bus_flows(busses, results):
                     )
                 )
         else:
-            capacity_battery = asset_results.capacity.battery
-            if capacity_battery != 0:
-                soc_battery = (
-                    solph.views.node(results, node=bus)["sequences"][
+            if "B" in case:
+                capacity_battery = asset_results.capacity.battery
+                if capacity_battery != 0:
+                    soc_battery = (
+                        solph.views.node(results, node=bus)["sequences"][
+                            (("battery", "None"), "storage_content")
+                        ]
+                        / capacity_battery
+                    )
+                else:
+                    soc_battery = solph.views.node(results, node=bus)["sequences"][
                         (("battery", "None"), "storage_content")
                     ]
-                    / capacity_battery
-                )
-            else:
-                soc_battery = solph.views.node(results, node=bus)["sequences"][
-                    (("battery", "None"), "storage_content")
-                ]
 
-            fig = go.Figure(layout=dict(title=f"{bus} node"))
+                fig = go.Figure(layout=dict(title=f"{bus} node"))
 
-            fig.add_trace(
-                go.Scatter(
-                    x=soc_battery.index, y=soc_battery.values, name="soc battery"
+                fig.add_trace(
+                    go.Scatter(
+                        x=soc_battery.index, y=soc_battery.values, name="soc battery"
+                    )
                 )
-            )
 
         bus_figures.append(fig)
     return bus_figures
