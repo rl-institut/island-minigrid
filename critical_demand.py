@@ -74,7 +74,7 @@ RESULTS_COLUMN_NAMES = [
     "annual_costs",
     "total_flow",
     "capacity",
-    "cash_flow",  # AA: could be named fuel_expenditure_cost
+    "fuel_expenditure",
     "total_opex_costs",
     "first_investment",
 ]
@@ -84,7 +84,7 @@ RESULTS_COLUMN_NAMES = [
 
 
 
-def diesel_cost(vol_cost, dens, energy_dens):
+def calculate_diesel_cost(vol_cost, dens, energy_dens):
     return vol_cost / dens / energy_dens
 
 def run_simulation(df_costs, data, settings):
@@ -104,6 +104,7 @@ def run_simulation(df_costs, data, settings):
     diesel_lhv = df_costs["energy_density"].diesel_genset
     diesel_density = df_costs["density"].diesel_genset
     diesel_vol_cost = df_costs["volumetric_cost"].diesel_genset
+    diesel_cost_per_kw = calculate_diesel_cost(diesel_vol_cost, diesel_density, diesel_lhv)
     soc_min = df_costs["soc_min"]
     soc_max = df_costs["soc_max"]
     project_planning_cost = df_costs["capex_fix"].project
@@ -193,7 +194,7 @@ def run_simulation(df_costs, data, settings):
 
         diesel_source = solph.components.Source(
             label="diesel_source",
-            outputs={b_diesel: solph.Flow(variable_costs=diesel_cost(df_costs["volumetric_cost"].diesel_genset, df_costs["density"].diesel_genset, df_costs["energy_density"].diesel_genset))},
+            outputs={b_diesel: solph.Flow(variable_costs=diesel_cost_per_kw)},
         )
 
         energy_system.add(b_diesel, diesel_genset, diesel_source)
@@ -371,7 +372,7 @@ def run_simulation(df_costs, data, settings):
     asset_results = df_costs.copy()
     asset_results["capacity"] = 0
     asset_results["total_flow"] = 0
-    asset_results["cash_flow"] = 0
+    asset_results["fuel_expenditure"] = 0
 
     project_lifetime = 25
     wacc = settings.wacc
@@ -405,8 +406,8 @@ def run_simulation(df_costs, data, settings):
             / diesel_density
         )
 
-        asset_results.loc["diesel_genset", "cash_flow"] = (
-            opex_var.diesel_genset * sequences_diesel_consumption.sum()
+        asset_results.loc["diesel_genset", "fuel_expenditure"] = (
+                diesel_cost_per_kw * sequences_diesel_consumption.sum()
         )
 
         # Hourly profiles for electricity production in the diesel genset.
@@ -487,16 +488,17 @@ def run_simulation(df_costs, data, settings):
         axis=1,
     )
     # Compute annual costs for each components
-    asset_results["annual_costs"] = asset_results.apply(
-        lambda x: (x.annuity * x.capacity) * year_fraction
-        + x.total_flow * x.opex_variable,
-        axis=1,
-    )
-
+    # TODO figure out which costs should be in annual and opex
     asset_results["total_opex_costs"] = asset_results.apply(
         lambda x: (x.opex_fix * x.capacity) * year_fraction
         + x.total_flow * x.opex_variable
-        + x.cash_flow,
+        + x.fuel_expenditure,
+        axis=1,
+    )
+
+    asset_results["annual_costs"] = asset_results.apply(
+        lambda x: (x.annuity * x.capacity) * year_fraction
+        + x.total_opex_costs,
         axis=1,
     )
 
@@ -504,9 +506,7 @@ def run_simulation(df_costs, data, settings):
     asset_results = asset_results[RESULTS_COLUMN_NAMES]
     asset_results.to_csv(f"results_{case}.csv")
 
-    NPV = (
-        (asset_results.annual_costs.sum() + asset_results.cash_flow.sum()) / CRF
-    ) + project_planning_cost
+    NPV = (asset_results.annual_costs.sum() / CRF) + project_planning_cost
 
     # supplied demand
     total_demand = sequences_demand.sum(axis=0) + sequences_critical_demand.sum(axis=0)
@@ -572,7 +572,7 @@ def run_simulation(df_costs, data, settings):
     ).set_index("param")
 
     help_lcoe = """The lcoe is calculated as : (NPV * CRF) / (total critical demand supplied + total non critical demand supplied)
-    NPV = sum_i{ annual_costs_i + cash_flow_i)} / CRF (where the sum is over each asset)
+    NPV = sum_i{ annual_costs_i + fuel_expenditure_i)} / CRF (where the sum is over each asset)
 
     NPV = sum_i{ annual_costs_i + fuel_cost_per_liter_i * consumed_liters_i)} / CRF 
 
@@ -614,7 +614,7 @@ def run_simulation(df_costs, data, settings):
     print(f"Total opex costs :\t\t {total_opex_costs:.2f} USD/{settings.n_days} days")
     print(f"First investment :\t\t {first_investment:.2f} USD")
     print(
-        f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/{settings.n_days} days"
+        f"Fuel expenditure :\t\t {asset_results.fuel_expenditure.sum():.2f} USD/{settings.n_days} days"
     )
     print(f"RES:\t\t {res:.0f}%")
     print(f"Excess:\t\t {excess_rate:.1f}% of the total production")
@@ -651,7 +651,7 @@ def run_simulation(df_costs, data, settings):
                         title="It is the sum of the product of optimized capacity and annualized costs of each asset",
                     ),
                     html.P(
-                        f"Fuel expenditure :\t\t {asset_results.cash_flow.sum()*CRF:.2f} USD/{settings.n_days} days"
+                        f"Fuel expenditure :\t\t {asset_results.fuel_expenditure.sum():.2f} USD/{settings.n_days} days"
                     ),
                     html.P(f"RES:\t\t {res:.0f}%"),
                     html.P(f"Excess:\t\t {excess_rate:.1f}% of the total production"),
