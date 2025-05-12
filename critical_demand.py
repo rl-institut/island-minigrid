@@ -463,6 +463,12 @@ def run_simulation(df_costs, data, settings):
                 (("electricity_dc", "battery"), "invest")
             ]
 
+            sequences_battery = results_battery["sequences"][
+                (("battery", "electricity_dc"), "flow")
+            ]
+
+            asset_results.loc["battery", "total_flow"] = sequences_battery.sum()
+
         if "H" in case:
             results_electrolyser = solph.views.node(results=results, node="electrolyser")
             results_fuel_cell = solph.views.node(results=results, node="fuel_cell")
@@ -476,6 +482,22 @@ def run_simulation(df_costs, data, settings):
             capacities["h2_storage"] = results_h2_storage["scalars"][
                 (("hydrogen", "h2_storage"), "invest")
             ]
+
+            sequences_electrolyser = results_electrolyser["sequences"][
+                (("electrolyser", "hydrogen"), "flow")
+            ]
+
+            sequences_fuel_cell = results_fuel_cell["sequences"][
+                (("fuel_cell", "electricity_ac"), "flow")
+            ]
+
+            sequences_h2_storage = results_h2_storage["sequences"][
+                (("h2_storage", "hydrogen"), "flow")
+            ]
+
+            asset_results.loc["electrolyser", "total_flow"] = sequences_electrolyser.sum()
+            asset_results.loc["fuel_cell", "total_flow"] = sequences_fuel_cell.sum()
+            asset_results.loc["h2_storage", "total_flow"] = sequences_h2_storage.sum()
 
     for asset, capacity in capacities.items():
         asset_results.loc[asset, "capacity"] = capacity
