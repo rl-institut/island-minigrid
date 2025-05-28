@@ -863,11 +863,31 @@ def plot_bus_flows(busses, results):
                         (("battery", "None"), "storage_content")
                     ]
 
-                fig = go.Figure(layout=dict(title=f"{bus} node"))
+                fig = go.Figure(layout=dict(title=f"storage node"))
 
                 fig.add_trace(
                     go.Scatter(
                         x=soc_battery.index, y=soc_battery.values, name="soc battery"
+                    )
+                )
+
+            if "H" in case:
+                capacity_h2_storage = asset_results.capacity.h2_storage
+                if capacity_h2_storage != 0:
+                    soc_h2_storage = (
+                        solph.views.node(results, node="h2_storage")["sequences"][
+                            (("h2_storage", "None"), "storage_content")
+                        ]
+                        / capacity_h2_storage
+                    )
+                else:
+                    soc_h2_storage = solph.views.node(results, node="h2_storage")["sequences"][
+                        (("h2_storage", "None"), "storage_content")
+                    ]
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=soc_h2_storage.index, y=soc_h2_storage.values, name="soc h2_storage"
                     )
                 )
 
@@ -1066,7 +1086,7 @@ if __name__ == "__main__":
                         (("battery", "None"), "storage_content")
                     ]
 
-                fig = go.Figure(layout=dict(title=f"{bus} node", yaxis_range=[0, 1]))
+                fig = go.Figure(layout=dict(title=f"storage SOC", yaxis_range=[0, 1]))
 
                 fig.add_trace(
                     go.Scatter(
@@ -1087,6 +1107,42 @@ if __name__ == "__main__":
                         name="max soc battery",
                     )
                 )
+
+                if "H" in case:
+                    capacity_h2_storage = asset_results.capacity.h2_storage
+                    if capacity_h2_storage != 0:
+                        soc_h2_storage = (
+                                solph.views.node(results, node="h2_storage")["sequences"][
+                                    (("h2_storage", "None"), "storage_content")
+                                ]
+                                / capacity_h2_storage
+                        )
+                    else:
+                        soc_h2_storage = solph.views.node(results, node="h2_storage")["sequences"][
+                            (("h2_storage", "None"), "storage_content")
+                        ]
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=soc_h2_storage.index, y=soc_h2_storage.values, name="soc h2 storage"
+                        )
+                    )
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=soc_h2_storage.index,
+                            y=np.ones(len(soc_h2_storage.index)) * soc_min.h2_storage,
+                            name="min soc h2 storage",
+                        )
+                    )
+                    fig.add_trace(
+                        go.Scatter(
+                            x=soc_h2_storage.index,
+                            y=np.ones(len(soc_h2_storage.index)) * soc_max.h2_storage,
+                            name="max soc h2 storage",
+                        )
+                    )
+
             fig.add_trace(
                 go.Scatter(
                     x=[date_time_index[ts], date_time_index[ts]],
