@@ -101,6 +101,7 @@ def run_simulation(df_costs, data, settings):
     epc = df_costs["annuity"]
     opex_var = df_costs["opex_variable"].fillna(0)
     efficiency = df_costs["efficiency"].fillna(1)
+    # min_load = df_costs["min_load"].fillna(0)
     diesel_lhv = df_costs["energy_density"].diesel_genset
     diesel_density = df_costs["density"].diesel_genset
     diesel_vol_cost = df_costs["volumetric_cost"].diesel_genset
@@ -170,8 +171,6 @@ def run_simulation(df_costs, data, settings):
 
     # -------------------- DIESEL SYSTEM --------------
     if "D" in case:
-        min_load = 0.20
-        max_load = 1
         b_diesel = solph.Bus(label="diesel")
         diesel_genset = solph.components.Converter(
             label="diesel_genset",
@@ -179,11 +178,11 @@ def run_simulation(df_costs, data, settings):
             outputs={
                 b_el_ac: solph.Flow(
                     variable_costs=opex_var.diesel_genset,
-                    min=min_load,
-                    max=max_load,
+                    # min=min_load.diesel_genset,
+                    max=1,
                     nominal_value=solph.Investment(
                         ep_costs=epc.diesel_genset * n_days / n_days_in_year,
-                        # maximum=2 * peak_demand,
+                        maximum=2 * peak_demand,
                         # minimum= 1.2*peak_demand,
                     ),
                     # nonconvex=solph.NonConvex(),
@@ -272,7 +271,7 @@ def run_simulation(df_costs, data, settings):
                 outputs={
                     b_el_ac: solph.Flow(
                         variable_costs=opex_var.fuel_cell,
-                        min=0.1,
+                        # min=min_load.fuel_cell,
                         max=1,
                         nominal_value=solph.Investment(
                             ep_costs=epc.fuel_cell * n_days / n_days_in_year,
@@ -288,11 +287,15 @@ def run_simulation(df_costs, data, settings):
             electrolyser = solph.components.Converter(
                 label="electrolyser",
                 inputs={
-                    b_el_dc: solph.Flow(
+                    b_el_ac: solph.Flow(
+                        # min=min_load.electrolyser,
+                        max=1,
                         nominal_value=solph.Investment(
-                            ep_costs=epc.electrolyser * n_days / n_days_in_year
+                            ep_costs=epc.electrolyser * n_days / n_days_in_year,
+                            maximum=2 * peak_demand,
                         ),
-                        variable_costs=opex_var.electrolyser,  # has to be fits input sheet
+                        variable_costs=opex_var.electrolyser,
+                        # nonconvex=solph.NonConvex(),
                     )
                 },
                 outputs={b_h2: solph.Flow()},
@@ -343,7 +346,7 @@ def run_simulation(df_costs, data, settings):
 
     # The higher the MipGap or ratioGap, the faster the solver would converge,
     # but the less accurate the results would be.
-    solver_option = {"gurobi": {"MipGap": "0.02"}, "cbc": {"ratioGap": "0.02"}}
+    solver_option = {"gurobi": {"MipGap": "0.02"}, "cbc": {"ratioGap": "0.02", "logLevel": "2", "slogLevel": "2"}}
     solver = "cbc"
 
     energy_system_graph = f"case_{case}.png"
@@ -474,7 +477,7 @@ def run_simulation(df_costs, data, settings):
             results_fuel_cell = solph.views.node(results=results, node="fuel_cell")
             results_h2_storage = solph.views.node(results=results, node="h2_storage")
             capacities["electrolyser"] = results_electrolyser["scalars"][
-                (("electricity_dc", "electrolyser"), "invest")
+                (("electricity_ac", "electrolyser"), "invest")
             ]
             capacities["fuel_cell"] = results_fuel_cell["scalars"][
                 (("fuel_cell", "electricity_ac"), "invest")
@@ -837,13 +840,14 @@ def plot_bus_flows(busses, results):
         if bus != "battery":
             fig = go.Figure(layout=dict(title=f"{bus} bus node"))
             for t, g in solph.views.node(results, node=bus)["sequences"].items():
-                idx_asset = abs(t[0].index(bus) - 1)
+                if t[1] == "flow":
+                    idx_asset = abs(t[0].index(bus) - 1)
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=g.index, y=g.values * pow(-1, idx_asset), name=t[0][idx_asset]
+                        )
                     )
-                )
         else:
             if "B" in case:
                 capacity_battery = asset_results.capacity.battery
@@ -859,11 +863,31 @@ def plot_bus_flows(busses, results):
                         (("battery", "None"), "storage_content")
                     ]
 
-                fig = go.Figure(layout=dict(title=f"{bus} node"))
+                fig = go.Figure(layout=dict(title=f"storage node"))
 
                 fig.add_trace(
                     go.Scatter(
                         x=soc_battery.index, y=soc_battery.values, name="soc battery"
+                    )
+                )
+
+            if "H" in case:
+                capacity_h2_storage = asset_results.capacity.h2_storage
+                if capacity_h2_storage != 0:
+                    soc_h2_storage = (
+                        solph.views.node(results, node="h2_storage")["sequences"][
+                            (("h2_storage", "None"), "storage_content")
+                        ]
+                        / capacity_h2_storage
+                    )
+                else:
+                    soc_h2_storage = solph.views.node(results, node="h2_storage")["sequences"][
+                        (("h2_storage", "None"), "storage_content")
+                    ]
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=soc_h2_storage.index, y=soc_h2_storage.values, name="soc h2_storage"
                     )
                 )
 
@@ -872,11 +896,28 @@ def plot_bus_flows(busses, results):
 
 
 if __name__ == "__main__":
-    filename = "input_case_H2Pacific.xlsx"
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+
+    parser = argparse.ArgumentParser(
+        prog="python critical_demand.py",
+        description="Build a simple model with non critical demand",
+    )
+    parser.add_argument(
+        "-i",
+        dest="input_file",
+        nargs="?",
+        type=str,
+        help="path to the input file",
+        default=os.path.join(current_directory, "input_case.xlsx"),
+    )
+
+    args = vars(parser.parse_args())
+
+    filename = args.get("input_file")
 
     if not os.path.exists(filename):
         raise FileNotFoundError(
-            f"The file was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+            f"The file {filename} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
         )
     df_costs, data, settings, _ = read_input_file(filename)
     (
@@ -1024,29 +1065,30 @@ if __name__ == "__main__":
                 fig = go.Figure(layout=dict(title=f"{bus} bus node"))
                 max_y = 0
                 for t, g in solph.views.node(results, node=bus)["sequences"].items():
-                    idx_asset = abs(t[0].index(bus) - 1)
-                    asset_name = t[0][idx_asset]
-                    if t[0][idx_asset] == "battery":
-                        if idx_asset == 0:
-                            asset_name += " discharge"
-                        else:
-                            asset_name += " charge"
-                    opts = {}
-                    negative_sign = pow(-1, idx_asset)
-                    opts["stackgroup"] = (
-                        "negative_sign" if negative_sign < 0 else "positive_sign"
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=g.index,
-                            y=g.values * negative_sign,
-                            name=asset_name,
-                            **opts,
+                    if t[1] == "flow":
+                        idx_asset = abs(t[0].index(bus) - 1)
+                        asset_name = t[0][idx_asset]
+                        if t[0][idx_asset] == "battery":
+                            if idx_asset == 0:
+                                asset_name += " discharge"
+                            else:
+                                asset_name += " charge"
+                        opts = {}
+                        negative_sign = pow(-1, idx_asset)
+                        opts["stackgroup"] = (
+                            "negative_sign" if negative_sign < 0 else "positive_sign"
                         )
-                    )
-                    if g.max() > max_y:
-                        max_y = g.max()
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=g.index,
+                                y=g.values * negative_sign,
+                                name=asset_name,
+                                **opts,
+                            )
+                        )
+                        if g.max() > max_y:
+                            max_y = g.max()
             else:
                 capacity_battery = asset_results.capacity.battery
                 if capacity_battery != 0:
@@ -1061,7 +1103,7 @@ if __name__ == "__main__":
                         (("battery", "None"), "storage_content")
                     ]
 
-                fig = go.Figure(layout=dict(title=f"{bus} node", yaxis_range=[0, 1]))
+                fig = go.Figure(layout=dict(title=f"storage SOC", yaxis_range=[0, 1]))
 
                 fig.add_trace(
                     go.Scatter(
@@ -1082,6 +1124,42 @@ if __name__ == "__main__":
                         name="max soc battery",
                     )
                 )
+
+                if "H" in case:
+                    capacity_h2_storage = asset_results.capacity.h2_storage
+                    if capacity_h2_storage != 0:
+                        soc_h2_storage = (
+                                solph.views.node(results, node="h2_storage")["sequences"][
+                                    (("h2_storage", "None"), "storage_content")
+                                ]
+                                / capacity_h2_storage
+                        )
+                    else:
+                        soc_h2_storage = solph.views.node(results, node="h2_storage")["sequences"][
+                            (("h2_storage", "None"), "storage_content")
+                        ]
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=soc_h2_storage.index, y=soc_h2_storage.values, name="soc h2 storage"
+                        )
+                    )
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=soc_h2_storage.index,
+                            y=np.ones(len(soc_h2_storage.index)) * soc_min.h2_storage,
+                            name="min soc h2 storage",
+                        )
+                    )
+                    fig.add_trace(
+                        go.Scatter(
+                            x=soc_h2_storage.index,
+                            y=np.ones(len(soc_h2_storage.index)) * soc_max.h2_storage,
+                            name="max soc h2 storage",
+                        )
+                    )
+
             fig.add_trace(
                 go.Scatter(
                     x=[date_time_index[ts], date_time_index[ts]],
