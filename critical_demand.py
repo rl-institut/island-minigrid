@@ -178,14 +178,14 @@ def run_simulation(df_costs, data, settings):
             outputs={
                 b_el_ac: solph.Flow(
                     variable_costs=opex_var.diesel_genset,
-                    min=min_load.diesel_genset,
+                    # min=min_load.diesel_genset,
                     max=1,
                     nominal_value=solph.Investment(
                         ep_costs=epc.diesel_genset * n_days / n_days_in_year,
                         maximum=2 * peak_demand,
                         # minimum= 1.2*peak_demand,
                     ),
-                    nonconvex=solph.NonConvex(),
+                    # nonconvex=solph.NonConvex(),
                 )
             },
             conversion_factors={b_el_ac: efficiency.diesel_genset},
@@ -271,14 +271,14 @@ def run_simulation(df_costs, data, settings):
                 outputs={
                     b_el_ac: solph.Flow(
                         variable_costs=opex_var.fuel_cell,
-                        min=min_load.fuel_cell,
+                        # min=min_load.fuel_cell,
                         max=1,
                         nominal_value=solph.Investment(
                             ep_costs=epc.fuel_cell * n_days / n_days_in_year,
                             maximum=2 * peak_demand,
                             # minimum= 1.2*peak_demand,
                         ),
-                        nonconvex=solph.NonConvex(),
+                        # nonconvex=solph.NonConvex(),
                     )
                 },
                 conversion_factors={b_el_ac: efficiency.fuel_cell},
@@ -288,14 +288,14 @@ def run_simulation(df_costs, data, settings):
                 label="electrolyser",
                 inputs={
                     b_el_ac: solph.Flow(
-                        min=min_load.electrolyser,
+                        # min=min_load.electrolyser,
                         max=1,
                         nominal_value=solph.Investment(
                             ep_costs=epc.electrolyser * n_days / n_days_in_year,
                             maximum=2 * peak_demand,
                         ),
                         variable_costs=opex_var.electrolyser,
-                        nonconvex=solph.NonConvex(),
+                        # nonconvex=solph.NonConvex(),
                     )
                 },
                 outputs={b_h2: solph.Flow()},
