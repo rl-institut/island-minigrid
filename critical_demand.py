@@ -101,7 +101,7 @@ def run_simulation(df_costs, data, settings):
     epc = df_costs["annuity"]
     opex_var = df_costs["opex_variable"].fillna(0)
     efficiency = df_costs["efficiency"].fillna(1)
-    min_load = df_costs["min_load"].fillna(0)
+    # min_load = df_costs["min_load"].fillna(0)
     diesel_lhv = df_costs["energy_density"].diesel_genset
     diesel_density = df_costs["density"].diesel_genset
     diesel_vol_cost = df_costs["volumetric_cost"].diesel_genset
@@ -896,11 +896,28 @@ def plot_bus_flows(busses, results):
 
 
 if __name__ == "__main__":
-    filename = "input_case_H2Pacific.xlsx"
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+
+    parser = argparse.ArgumentParser(
+        prog="python critical_demand.py",
+        description="Build a simple model with non critical demand",
+    )
+    parser.add_argument(
+        "-i",
+        dest="input_file",
+        nargs="?",
+        type=str,
+        help="path to the input file",
+        default=os.path.join(current_directory, "input_case.xlsx"),
+    )
+
+    args = vars(parser.parse_args())
+
+    filename = args.get("input_file")
 
     if not os.path.exists(filename):
         raise FileNotFoundError(
-            f"The file was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
+            f"The file {filename} was not found, make sure you you did not make a typo in its name or that the file is accessible from where you executed this code"
         )
     df_costs, data, settings, _ = read_input_file(filename)
     (
