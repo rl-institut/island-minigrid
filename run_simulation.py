@@ -899,7 +899,7 @@ if __name__ == "__main__":
     current_directory = os.path.dirname(os.path.abspath(__file__))
 
     parser = argparse.ArgumentParser(
-        prog="python critical_demand.py",
+        prog="python run_simulation.py",
         description="Build a simple model with non critical demand",
     )
     parser.add_argument(
