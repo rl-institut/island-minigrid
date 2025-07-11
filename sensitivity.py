@@ -8,7 +8,7 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import plotly.express as px
 
-from critical_demand import run_simulation, RESULTS_COLUMN_NAMES
+from run_simulation import run_simulation, RESULTS_COLUMN_NAMES
 from utils import read_input_file
 import numpy as np
 import pandas as pd
